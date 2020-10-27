@@ -840,6 +840,9 @@ class MyApp(Ui_biaoding,QMainWindow):
                 elif Can1Variable.getOperationStatus() == 7:
                     self.lineEditEnd.setText("Fail")
                     break
+                else:
+                    self.lineEditEnd.setText("Pass")
+                    break
 
             # 只有右雷达
             if self.groupCan1Info == '无' and self.groupCan2Info != '无':
@@ -849,6 +852,9 @@ class MyApp(Ui_biaoding,QMainWindow):
                 elif Can2Variable.getOperationStatus() == 7:
                     self.lineEditEnd.setText("Fail")
                     break
+                else:
+                    self.lineEditEnd.setText("Pass")
+                    break
 
             # 双雷达
             if self.groupCan1Info != '无' and self.groupCan2Info != '无':
@@ -856,8 +862,13 @@ class MyApp(Ui_biaoding,QMainWindow):
                     self.lineEditEnd.setText("Pass")
                     break
                 else:
-                    self.lineEditEnd.setText("Fail")
-                    break
+                    if Can1Variable.getOperationStatus() == 7 or Can2Variable.getOperationStatus() == 7:
+                        self.lineEditEnd.setText("Fail")
+                        break
+                    else:
+                        self.lineEditEnd.setText("Fail")
+                        break
+
 
         canDLL.VCI_CloseDevice(VCI_USBCAN2, 0)
         if ta1 != 0:
