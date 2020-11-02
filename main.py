@@ -1,5 +1,14 @@
 #python3.8.0 64位（python 32位要用32位的DLL）
 #
+from threading import Timer
+from queue import Queue
+import datetime
+import  time
+import global_variable as gv
+gv._init()
+from matplotlib.animation import FuncAnimation
+import random
+from PyQt5.QtCore import QThread, pyqtSignal
 from ctypes import *
 import ctypes
 import inspect
@@ -25,13 +34,11 @@ from calibration.definevariable import anglecalibrationpress
 
 # 角度标定已经完成的角度个数
 from calibration.definevariable import anglecalibrationcompletednum
-
-
+import math
 VCI_USBCAN2 = 4
 STATUS_OK = 1
 
 ListValueID = []
-
 
 class VCI_INIT_CONFIG(Structure):
     _fields_ = [("AccCode", c_uint),
@@ -155,7 +162,6 @@ class ConfirmWindow(Ui_Confirm, QWidget):
 
         #只有角度标定时，判断是否开始角度标定
         self.angleCalibrationPress = angleCalibrationPress
-
     def show_text(self, groupCan1Info, groupCan2Info, groupCanTypeInfo, canSnNumber, groupCan1, groupCan2, batchNum, clientCode):
         self.groupCan1Info = groupCan1Info
         self.groupCan2Info = groupCan2Info
@@ -271,11 +277,149 @@ class ConfirmWindow(Ui_Confirm, QWidget):
                 # 关掉自身窗口
                 self.close()
 
+
+class Refresh(QThread):
+    def __init__(self, ax, fig):
+        super().__init__()
+        self.ax = ax
+        self.fig = fig
+        self.figure = fig
+    def run(self):
+        # print(targets[0], targets[1])
+        while True:
+            target = gv.get_variable('target')
+            if target:
+                self.ax.cla()
+                self.ax.set_thetagrids(np.arange(-90, 91, 10.0))
+                self.ax.set_theta_zero_location('N')
+                self.ax.set_theta_direction(1)
+                self.ax.set_thetamin(-90)  # 设置极坐标图开始角度为0°
+                self.ax.set_thetamax(90)  # 设置极坐标结束角度为180°
+                self.ax.set_rgrids(np.arange(0, 61.0, 20.0))
+                self.ax.set_rlim(0.0, 60.0)  # 标签范围为[0, 100)
+                self.ax.set_yticklabels(['0', '20', '40', '60'])
+                self.ax.grid(True, linestyle="-", color="k", linewidth=0.5, alpha=0.5)
+                self.ax.set_axisbelow('False')  # 使散点覆盖在坐标系之上
+                self.ax.set_rlabel_position(0)  # 标签显示在0°
+                self.ax.scatter(target[0], target[1], s=5.0)
+                # ax.scatter([random.uniform(0, 5) for i in range(10)], [random.uniform(0, 80) for i in range(10)], s=5.0)
+                self.figure.canvas.draw()
+                self.figure.canvas.flush_events()
+
+class CanThrerad(QThread):
+    text = pyqtSignal(object)
+    draw = pyqtSignal(list)
+    def __init__(self):
+        super().__init__()
+        self.cluster_list = [[],[],[]]
+    def run(self):
+        VCI_USBCAN2A = 4
+        STATUS_OK = 1
+
+        class VCI_INIT_CONFIG(Structure):
+            _fields_ = [("AccCode", c_ulong),
+                        ("AccMask", c_ulong),
+                        ("Reserved", c_ulong),
+                        ("Filter", c_ubyte),
+                        ("Timing0", c_ubyte),
+                        ("Timing1", c_ubyte),
+                        ("Mode", c_ubyte)
+                        ]
+
+        class VCI_CAN_OBJ(Structure):
+            _fields_ = [("ID", c_uint),
+                        ("TimeStamp", c_uint),
+                        ("TimeFlag", c_ubyte),
+                        ("SendType", c_ubyte),
+                        ("RemoteFlag", c_ubyte),
+                        ("ExternFlag", c_ubyte),
+                        ("DataLen", c_ubyte),
+                        ("Data", c_ubyte * 8),
+                        ("Reserved", c_ubyte * 3)
+                        ]
+
+        CanDLLName = 'E:\Pythonfiles\EOL_Dev\ControlCAN.dll'  # DLL是32位的，必须使用32位的PYTHON
+        canDLL = windll.LoadLibrary(CanDLLName)
+        print(CanDLLName)
+
+        ret = canDLL.VCI_OpenDevice(VCI_USBCAN2A, 0, 0)
+        print(ret)
+        if ret != STATUS_OK:
+            print('调用 VCI_OpenDevice出错\r\n')
+
+        # 初始0通道
+        vci_initconfig = VCI_INIT_CONFIG(0x80000008, 0xFFFFFFFF, 0,
+                                         2, 0x00, 0x1C, 0)
+        ret = canDLL.VCI_InitCAN(VCI_USBCAN2A, 0, 0, byref(vci_initconfig))
+        if ret != STATUS_OK:
+            print('调用 VCI_InitCAN出错\r\n')
+
+        ret = canDLL.VCI_StartCAN(VCI_USBCAN2A, 0, 0)
+        if ret != STATUS_OK:
+            print('调用 VCI_StartCAN出错\r\n')
+
+        # 通道0发送数据
+        ubyte_array = c_ubyte * 8
+        a = ubyte_array(1, 2, 3, 4, 5, 6, 7, 64)
+        ubyte_3array = c_ubyte * 3
+        b = ubyte_3array(0, 0, 0)
+        # vci_can_obj = VCI_CAN_OBJ(0x0, 0, 0, 1, 0, 0, 8, a, b)
+
+        # ret = canDLL.VCI_Transmit(VCI_USBCAN2A, 0, 0, byref(vci_can_obj), 1)
+        # if ret != STATUS_OK:
+        #     print('调用 VCI_Transmit 出错\r\n')
+
+        # 通道1接收数据
+        a = ubyte_array(0, 0, 0, 0, 0, 0, 0, 0)
+        vci_can_obj = VCI_CAN_OBJ(0x0, 0, 0, 1, 0, 0, 8, a, b)
+        ret = canDLL.VCI_Receive(VCI_USBCAN2A, 0, 0, byref(vci_can_obj), 1, 0)
+        while True:
+            # while ret <= 0:
+            # print('调用 VCI_Receive 出错\r\n')
+            ret = canDLL.VCI_Receive(VCI_USBCAN2A, 0, 0, byref(vci_can_obj), 1, 0)
+            if ret > 0:
+                id, data = vci_can_obj.ID, list(vci_can_obj.Data)
+                self.text.emit([id, data])
+                if id == 1802 or id == 1803:
+                    bin_can_frame_list = [bin(x)[2:].zfill(8) for x in data]
+                    bin_can_frame_str = ''.join(bin_can_frame_list)
+                    if id == 1802:
+                        gv.set_variable('target', self.cluster_list)
+                        self.cluster_list = [[], [], data[0]]
+
+                    if id == 1803:
+                        ID = int(bin_can_frame_str[0:8], 2)
+                        DistLong = int(bin_can_frame_str[8:18], 2) * 0.2 - 102
+                        DistLat = int(bin_can_frame_str[18:28], 2) * 0.2 - 102
+                        VrelLong = int(bin_can_frame_str[28:38], 2) * 0.25 - 128
+                        VrelLat = int(bin_can_frame_str[38:47], 2) * 0.25 - 64
+                        Status = (int(bin_can_frame_str[50:53], 2))
+                        PossibilitofExist = (int(bin_can_frame_str[53:56], 2))
+                        RCS = int(bin_can_frame_str[56:64], 2) * 0.5 - 64
+                        # print(ID)
+                        # print(DistLong)
+                        # print(DistLat)
+                        # print(VrelLong)
+                        # print(VrelLat)
+                        # print(Status)
+                        # print(PossibilitofExist)
+                        # print(RCS)
+                        theta = math.atan2(DistLat, DistLong)
+                        r = math.sqrt(DistLong * DistLong + DistLat * DistLat)
+                        self.cluster_list[0].extend([theta])
+                        self.cluster_list[1].extend([r])
+
+        # 关闭
+        canDLL.VCI_CloseDevice(VCI_USBCAN2A, 0)
+
 class MyApp(Ui_biaoding,QMainWindow):
     def __init__(self):
         super(MyApp, self).__init__()
         self.setupUi(self)
-
+        self.ax = None
+        self.queue_targets= Queue()
+        gv.set_variable('target', [])
+        self.cluster_list = [[], [], []]
         self.initUI()
 
         #通道选择
@@ -337,6 +481,87 @@ class MyApp(Ui_biaoding,QMainWindow):
         self.op = 0
         self.opR = 0
         self.opL = 0
+        # self.can_live = Thread(target=self.show_CanText)
+        # self.can_live.setDaemon(True)
+        # self.can_live.start()
+
+    def show_CanText(self):
+
+        VCI_USBCAN2A = 4
+        STATUS_OK = 1
+
+        class VCI_INIT_CONFIG(Structure):
+            _fields_ = [("AccCode", c_ulong),
+                        ("AccMask", c_ulong),
+                        ("Reserved", c_ulong),
+                        ("Filter", c_ubyte),
+                        ("Timing0", c_ubyte),
+                        ("Timing1", c_ubyte),
+                        ("Mode", c_ubyte)
+                        ]
+
+        class VCI_CAN_OBJ(Structure):
+            _fields_ = [("ID", c_uint),
+                        ("TimeStamp", c_uint),
+                        ("TimeFlag", c_ubyte),
+                        ("SendType", c_ubyte),
+                        ("RemoteFlag", c_ubyte),
+                        ("ExternFlag", c_ubyte),
+                        ("DataLen", c_ubyte),
+                        ("Data", c_ubyte * 8),
+                        ("Reserved", c_ubyte * 3)
+                        ]
+
+        CanDLLName = 'E:\Pythonfiles\EOL_Dev\ControlCAN.dll'  # DLL是32位的，必须使用32位的PYTHON
+        canDLL = windll.LoadLibrary(CanDLLName)
+        print(CanDLLName)
+
+        ret = canDLL.VCI_OpenDevice(VCI_USBCAN2A, 0, 0)
+        print(ret)
+        if ret != STATUS_OK:
+            print('调用 VCI_OpenDevice出错\r\n')
+
+        # 初始0通道
+        vci_initconfig = VCI_INIT_CONFIG(0x80000008, 0xFFFFFFFF, 0,
+                                         2, 0x00, 0x1C, 0)
+        ret = canDLL.VCI_InitCAN(VCI_USBCAN2A, 0, 0, byref(vci_initconfig))
+        if ret != STATUS_OK:
+            print('调用 VCI_InitCAN出错\r\n')
+
+        ret = canDLL.VCI_StartCAN(VCI_USBCAN2A, 0, 0)
+        if ret != STATUS_OK:
+            print('调用 VCI_StartCAN出错\r\n')
+
+        # 通道0发送数据
+        ubyte_array = c_ubyte * 8
+        a = ubyte_array(1, 2, 3, 4, 5, 6, 7, 64)
+        ubyte_3array = c_ubyte * 3
+        b = ubyte_3array(0, 0, 0)
+        # vci_can_obj = VCI_CAN_OBJ(0x0, 0, 0, 1, 0, 0, 8, a, b)
+
+        # ret = canDLL.VCI_Transmit(VCI_USBCAN2A, 0, 0, byref(vci_can_obj), 1)
+        # if ret != STATUS_OK:
+        #     print('调用 VCI_Transmit 出错\r\n')
+
+        # 通道1接收数据
+        a = ubyte_array(0, 0, 0, 0, 0, 0, 0, 0)
+        vci_can_obj = VCI_CAN_OBJ(0x0, 0, 0, 1, 0, 0, 8, a, b)
+        ret = canDLL.VCI_Receive(VCI_USBCAN2A, 0, 0, byref(vci_can_obj), 1, 0)
+        print(ret)
+        while True:
+            # while ret <= 0:
+            # print('调用 VCI_Receive 出错\r\n')
+            ret = canDLL.VCI_Receive(VCI_USBCAN2A, 0, 0, byref(vci_can_obj), 1, 0)
+            if ret > 0:
+                pass
+                # print(datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3], list(vci_can_obj.Data))
+                # print(time.perf_counter(), ret)
+                # print(vci_can_obj.DataLen, vci_can_obj.ID)
+                # print(list(vci_can_obj.Data))
+
+
+        # 关闭
+        canDLL.VCI_CloseDevice(VCI_USBCAN2A, 0)
 
     def initUI(self):
         #安装类型
@@ -365,6 +590,100 @@ class MyApp(Ui_biaoding,QMainWindow):
         self.groupCanType.buttonClicked.connect(self.radiobutton_clicked)
         self.groupCan1.buttonClicked.connect(self.radiobutton_clicked)
         self.groupCan2.buttonClicked.connect(self.radiobutton_clicked)
+
+        # self.print_can = Thread(target=self.printcan)
+        # self.print_can.setDaemon(True)
+        # self.print_can.start()
+        ax, fig = self.draw_targets()
+        self.cantext = CanThrerad()
+        self.cantext.text.connect(self.printcan)
+        # self.cantext.text.connect(self.analyse_can)
+        # self.cantext.draw.connect(self.refresh_targets)
+        self.cantext.start()
+        self.refresh = Refresh(ax, fig)
+        self.refresh.start()
+
+
+        # nTimer = Timer(0.001, self.refresh_targets)
+        # nTimer.start()
+
+        # self.ax.scatter(targets[0], targets[1], s=5.0)
+    def draw_targets(self):
+
+        # rho = np.arange(0, 2.5, 0.02)  # 极径，0--2.5,间隔0.02
+        # theta = 2 * np.pi * rho  # 角度，单位：弧度
+        # self.ui.widgetPolar.figure.clear()
+        # ##ax1是matplotlib.projections.polar.PolarAxes类型的子图
+        # ax1 = self.ui.widgetPolar.figure.add_subplot(1, 1, 1, polar=True)
+        # ax1.plot(theta, rho, "r", linewidth=3)
+        # ax1.set_rmax(3)  # 极径最大值
+        # ax1.set_rticks([0, 1, 2])  # 极径刻度坐标
+        # ax1.set_rlabel_position(90)  # 极径刻度坐标，90°是正北
+        # ax1.grid(self.ui.chkBoxPolar_gridOn.isChecked())  # 是否显示网格
+
+
+        self.widgetHist.figure.clear()
+        self.ax = self.widgetHist.figure.add_subplot(1, 1, 1, polar=True)
+        # self.ax.set_thetagrids(np.arange(-60, 61, 10.0))
+        # self.ax.set_theta_zero_location('N')
+        # self.ax.set_theta_direction(1)
+        # self.ax.set_thetamin(-60)  # 设置极坐标图开始角度为0°
+        # self.ax.set_thetamax(60)  # 设置极坐标结束角度为180°
+        # self.ax.set_rgrids(np.arange(0, 61.0, 20.0))
+        # self.ax.set_rlim(0.0, 60.0)  # 标签范围为[0, 100)
+        # self.ax.set_yticklabels(['0', '20', '40', '60'])
+        # self.ax.grid(True, linestyle="-", color="k", linewidth=0.5, alpha=0.5)
+        # self.ax.set_axisbelow('False')  # 使散点覆盖在坐标系之上
+        # self.ax.set_rlabel_position(0)  # 标签显示在0°
+        # # self.ax.plot([5.497, 0, 0.785], [50, 70, 50])
+        # self.ax.scatter([5.497, 0, 0.785], [50, 70, 50], s=5.0)
+        return self.ax, self.widgetHist.figure
+
+
+
+
+
+
+    def printcan(self, canobject):
+        time_now = datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]
+        can_frame = ' '.join([hex(x)[2:].upper().zfill(2) for x in canobject[1]])
+        self.textBrowser_cantext.append(f'{time_now}  {hex(canobject[0]).upper()}  {can_frame}')
+        # self.textBrowser_cantext.append(f"{hex(canobject[0])}, {canobject[1]}")
+        # print(hex(canobject[0]), canobject[1])
+    def analyse_can(self, canobject):
+        # print(list(canobject.Data))
+        # print(canobject.ID)
+        if canobject[0] == 1802 or canobject[0] == 1803:
+            bin_can_frame_list = [bin(x)[2:].zfill(8) for x in canobject[1]]
+            bin_can_frame_str = ''.join(bin_can_frame_list)
+            # print(bin_can_frame_str, len(bin_can_frame_str))
+            if canobject[0] == 1802:
+                # print(int(bin_can_frame_str[0:8], 2), int(bin_can_frame_str[8:24], 2), int(bin_can_frame_str[24:40], 2))
+                print('70A_end', time.perf_counter())
+                print(len(self.cluster_list[0]), len(self.cluster_list[1]), self.cluster_list[2])
+                self.refresh_targets(self.cluster_list)
+                self.cluster_list = [[], [], canobject[1][0]]
+            if canobject[0] == 1803:
+                ID =int(bin_can_frame_str[0:8], 2)
+                DistLong = int(bin_can_frame_str[8:18], 2)*0.2-102
+                DistLat = int(bin_can_frame_str[18:28], 2)*0.2-102
+                VrelLong = int(bin_can_frame_str[28:38], 2)*0.25-128
+                VrelLat = int(bin_can_frame_str[38:47], 2)*0.25-64
+                Status = (int(bin_can_frame_str[50:53], 2))
+                PossibilitofExist = (int(bin_can_frame_str[53:56], 2))
+                RCS = int(bin_can_frame_str[56:64], 2)*0.5-64
+                # print(ID)
+                # print(DistLong)
+                # print(DistLat)
+                # print(VrelLong)
+                # print(VrelLat)
+                # print(Status)
+                # print(PossibilitofExist)
+                # print(RCS)
+                theta = math.atan2(DistLat, DistLong)
+                r = math.sqrt(DistLong*DistLong+DistLat*DistLat)
+                self.cluster_list[0].extend([theta])
+                self.cluster_list[1].extend([r])
 
     def radiobutton_clicked(self):
         sender = self.sender()
