@@ -45,13 +45,13 @@ def can_open(groupCan1Info, groupCan2Info):
     vci_initconfig = VCI_INIT_CONFIG(0x80000008, 0xFFFFFFFF, 0,
                                      0, 0x01, 0x1C, 0)  # 波特率250k，正常模式
     if groupCan1Info != "无":
-        ret = canDLL.VCI_InitCAN(VCI_USBCAN2, 0, 0, byref(vci_initconfig))
+        # ret = canDLL.VCI_InitCAN(VCI_USBCAN2, 0, 0, byref(vci_initconfig))
         # if ret == STATUS_OK:
         #     print('调用 VCI_InitCAN1成功\r\n')
         # if ret != STATUS_OK:
         #     print('调用 VCI_InitCAN1出错\r\n')
 
-        ret = canDLL.VCI_StartCAN(VCI_USBCAN2, 0, 0)
+        # ret = canDLL.VCI_StartCAN(VCI_USBCAN2, 0, 0)
         # if ret == STATUS_OK:
         #     print('调用 VCI_StartCAN1成功\r\n')
         # if ret != STATUS_OK:
@@ -62,13 +62,13 @@ def can_open(groupCan1Info, groupCan2Info):
         ta1.start()  # 开启ta线程
 
     if groupCan2Info != "无":
-        ret = canDLL.VCI_InitCAN(VCI_USBCAN2, 0, 1, byref(vci_initconfig))
+        # ret = canDLL.VCI_InitCAN(VCI_USBCAN2, 0, 1, byref(vci_initconfig))
         # if ret == STATUS_OK:
         #     print('调用 VCI_InitCAN2成功\r\n')
         # if ret != STATUS_OK:
         #     print('调用 VCI_InitCAN2出错\r\n')
 
-        ret = canDLL.VCI_StartCAN(VCI_USBCAN2, 0, 1)
+        # ret = canDLL.VCI_StartCAN(VCI_USBCAN2, 0, 1)
         # if ret == STATUS_OK:
         #     print('调用 VCI_StartCAN2成功\r\n')
         # if ret != STATUS_OK:
@@ -81,7 +81,8 @@ def can_open(groupCan1Info, groupCan2Info):
     return Can1Variable, Can2Variable, ta1, ta2
 
 def can_close():
-    ret = canDLL.VCI_CloseDevice(VCI_USBCAN2, 0)
+    pass
+    # ret = canDLL.VCI_CloseDevice(VCI_USBCAN2, 0)
     # if ret == STATUS_OK:
     #     print('调用 VCI_CloseDevice成功\r\n')
     # if ret != STATUS_OK:

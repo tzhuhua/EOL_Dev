@@ -3,7 +3,7 @@
 block_cipher = None
 
 
-a = Analysis(['can.py'],
+a = Analysis(['main.py'],
              pathex=['F:\\李翔鹏\\任务交接\\任务交接\\代码\\源码\\EOL\\标定_250K_Dev_v2.2'],
              binaries=[],
              datas=[('ControlCAN.dll', '.')],

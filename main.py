@@ -1,6 +1,6 @@
 #python3.8.0 64位（python 32位要用32位的DLL）
 #
-from threading import Timer
+from threading import Thread
 from queue import Queue
 import datetime
 import  time
@@ -308,7 +308,7 @@ class Refresh(QThread):
 
 class CanThrerad(QThread):
     text = pyqtSignal(object)
-    draw = pyqtSignal(list)
+    # draw = pyqtSignal(list)
     def __init__(self):
         super().__init__()
         self.cluster_list = [[],[],[]]
@@ -360,25 +360,27 @@ class CanThrerad(QThread):
 
         # 通道0发送数据
         ubyte_array = c_ubyte * 8
-        a = ubyte_array(1, 2, 3, 4, 5, 6, 7, 64)
+        self.array = ubyte_array(0xC1, 0x51, 0x5B, 0x05, 0x64, 0x00, 0x0A, 0x0)
+        a = self.array
         ubyte_3array = c_ubyte * 3
         b = ubyte_3array(0, 0, 0)
-        # vci_can_obj = VCI_CAN_OBJ(0x0, 0, 0, 1, 0, 0, 8, a, b)
+        vci_can_obj = VCI_CAN_OBJ(0x635, 0, 0, 1, 0, 0, 8, a, b)
 
-        # ret = canDLL.VCI_Transmit(VCI_USBCAN2A, 0, 0, byref(vci_can_obj), 1)
-        # if ret != STATUS_OK:
-        #     print('调用 VCI_Transmit 出错\r\n')
+        ret = canDLL.VCI_Transmit(VCI_USBCAN2A, 0, 0, byref(vci_can_obj), 1)
 
-        # 通道1接收数据
         a = ubyte_array(0, 0, 0, 0, 0, 0, 0, 0)
         vci_can_obj = VCI_CAN_OBJ(0x0, 0, 0, 1, 0, 0, 8, a, b)
-        ret = canDLL.VCI_Receive(VCI_USBCAN2A, 0, 0, byref(vci_can_obj), 1, 0)
+        # ret = canDLL.VCI_Receive(VCI_USBCAN2A, 0, 0, byref(vci_can_obj), 1, 0)
         while True:
             # while ret <= 0:
             # print('调用 VCI_Receive 出错\r\n')
             ret = canDLL.VCI_Receive(VCI_USBCAN2A, 0, 0, byref(vci_can_obj), 1, 0)
             if ret > 0:
-                id, data = vci_can_obj.ID, list(vci_can_obj.Data)
+                id= vci_can_obj.ID
+                data = list(vci_can_obj.Data)
+                gv.set_variable("current_frame", [id, data])
+                print([id, data])
+                # self.browser.append(f'{id}  {data}')
                 self.text.emit([id, data])
                 if id == 1802 or id == 1803:
                     bin_can_frame_list = [bin(x)[2:].zfill(8) for x in data]
@@ -391,19 +393,19 @@ class CanThrerad(QThread):
                         ID = int(bin_can_frame_str[0:8], 2)
                         DistLong = int(bin_can_frame_str[8:18], 2) * 0.2 - 102
                         DistLat = int(bin_can_frame_str[18:28], 2) * 0.2 - 102
-                        VrelLong = int(bin_can_frame_str[28:38], 2) * 0.25 - 128
-                        VrelLat = int(bin_can_frame_str[38:47], 2) * 0.25 - 64
-                        Status = (int(bin_can_frame_str[50:53], 2))
-                        PossibilitofExist = (int(bin_can_frame_str[53:56], 2))
-                        RCS = int(bin_can_frame_str[56:64], 2) * 0.5 - 64
-                        # print(ID)
-                        # print(DistLong)
-                        # print(DistLat)
-                        # print(VrelLong)
-                        # print(VrelLat)
-                        # print(Status)
-                        # print(PossibilitofExist)
-                        # print(RCS)
+                        # VrelLong = int(bin_can_frame_str[28:38], 2) * 0.25 - 128
+                        # VrelLat = int(bin_can_frame_str[38:47], 2) * 0.25 - 64
+                        # Status = (int(bin_can_frame_str[50:53], 2))
+                        # PossibilitofExist = (int(bin_can_frame_str[53:56], 2))
+                        # RCS = int(bin_can_frame_str[56:64], 2) * 0.5 - 64
+                        # # print(ID)
+                        # # print(DistLong)
+                        # # print(DistLat)
+                        # # print(VrelLong)
+                        # # print(VrelLat)
+                        # # print(Status)
+                        # # print(PossibilitofExist)
+                        # # print(RCS)
                         theta = math.atan2(DistLat, DistLong)
                         r = math.sqrt(DistLong * DistLong + DistLat * DistLat)
                         self.cluster_list[0].extend([theta])
@@ -597,8 +599,7 @@ class MyApp(Ui_biaoding,QMainWindow):
         ax, fig = self.draw_targets()
         self.cantext = CanThrerad()
         self.cantext.text.connect(self.printcan)
-        # self.cantext.text.connect(self.analyse_can)
-        # self.cantext.draw.connect(self.refresh_targets)
+        # # self.cantext.draw.connect(self.refresh_targets)
         self.cantext.start()
         self.refresh = Refresh(ax, fig)
         self.refresh.start()
@@ -644,46 +645,14 @@ class MyApp(Ui_biaoding,QMainWindow):
 
 
 
-    def printcan(self, canobject):
+    def printcan(self, can_list):
         time_now = datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]
-        can_frame = ' '.join([hex(x)[2:].upper().zfill(2) for x in canobject[1]])
-        self.textBrowser_cantext.append(f'{time_now}  {hex(canobject[0]).upper()}  {can_frame}')
+        can_frame = ' '.join([hex(x)[2:].upper().zfill(2) for x in can_list[1]])
+        self.textBrowser_cantext.append(f'{time_now}  {hex(can_list[0]).upper()}  {can_frame}')
+        # self.textBrowser_cantext.moveCursor(self.textBrowser_cantext.textCursor().End)
         # self.textBrowser_cantext.append(f"{hex(canobject[0])}, {canobject[1]}")
         # print(hex(canobject[0]), canobject[1])
-    def analyse_can(self, canobject):
-        # print(list(canobject.Data))
-        # print(canobject.ID)
-        if canobject[0] == 1802 or canobject[0] == 1803:
-            bin_can_frame_list = [bin(x)[2:].zfill(8) for x in canobject[1]]
-            bin_can_frame_str = ''.join(bin_can_frame_list)
-            # print(bin_can_frame_str, len(bin_can_frame_str))
-            if canobject[0] == 1802:
-                # print(int(bin_can_frame_str[0:8], 2), int(bin_can_frame_str[8:24], 2), int(bin_can_frame_str[24:40], 2))
-                print('70A_end', time.perf_counter())
-                print(len(self.cluster_list[0]), len(self.cluster_list[1]), self.cluster_list[2])
-                self.refresh_targets(self.cluster_list)
-                self.cluster_list = [[], [], canobject[1][0]]
-            if canobject[0] == 1803:
-                ID =int(bin_can_frame_str[0:8], 2)
-                DistLong = int(bin_can_frame_str[8:18], 2)*0.2-102
-                DistLat = int(bin_can_frame_str[18:28], 2)*0.2-102
-                VrelLong = int(bin_can_frame_str[28:38], 2)*0.25-128
-                VrelLat = int(bin_can_frame_str[38:47], 2)*0.25-64
-                Status = (int(bin_can_frame_str[50:53], 2))
-                PossibilitofExist = (int(bin_can_frame_str[53:56], 2))
-                RCS = int(bin_can_frame_str[56:64], 2)*0.5-64
-                # print(ID)
-                # print(DistLong)
-                # print(DistLat)
-                # print(VrelLong)
-                # print(VrelLat)
-                # print(Status)
-                # print(PossibilitofExist)
-                # print(RCS)
-                theta = math.atan2(DistLat, DistLong)
-                r = math.sqrt(DistLong*DistLong+DistLat*DistLat)
-                self.cluster_list[0].extend([theta])
-                self.cluster_list[1].extend([r])
+
 
     def radiobutton_clicked(self):
         sender = self.sender()

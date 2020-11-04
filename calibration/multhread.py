@@ -35,6 +35,8 @@ class mythread(threading.Thread):
 
     def run(self):
         #ListValueMessage = []
+
+        return
         ubyte_array = c_ubyte * 8
         a = ubyte_array(0, 0, 0, 0, 0, 0, 0, 0)
         ubyte_3array = c_ubyte * 3
@@ -45,8 +47,10 @@ class mythread(threading.Thread):
             ret = canDLL.VCI_Receive(VCI_USBCAN2, 0, self.channel, byref(vci_can_obj), 1, 0)    #每次接收一帧数据，这里设为1
             while ret <= 0:  # 如果没有接收到数据，一直循环查询接收。
                 ret = canDLL.VCI_Receive(VCI_USBCAN2, 0, self.channel, byref(vci_can_obj), 1, 0)
-            #print(vci_can_obj.ID)
             if ret > 0:  # 接收到一帧数据
+                print(vci_can_obj.DataLen)
+                print(list(vci_can_obj.Data))
+
                 #剔除掉心跳报文
                 if vci_can_obj.ID != 0x600:
                     StoreValue = []
@@ -114,11 +118,11 @@ class operationthread(threading.Thread):
                     CloseWorkbook(wb, self.ExcelName, self.groupCanInfo)  # 保存
                     self.CanVariable.changeOperationStatus(2)
                     break
-                # 大于10s就终止系统标定
-                if (timeEndVal - timeStartVal) > 10:
+                # 大于60s就终止系统标定
+                if (timeEndVal - timeStartVal) > 60:
                     self.CanVariable.changeOperationStatus(2)
                     self.CanVariable.changeTimeOutVal(1)
-                    canDLL.VCI_CloseDevice(VCI_USBCAN2, 0)
+                    # canDLL.VCI_CloseDevice(VCI_USBCAN2, 0)
                     break
         #角度标定
         if OperationStatus == 3:
@@ -157,8 +161,8 @@ class operationthread(threading.Thread):
                             self.CanVariable.clearListValueMessage()
                             self.CanVariable.changeOperationStatus(4)
                             break
-                        # 大于10s就终止系统标定
-                        if (timeEndVal - timeStartVal) > 10:
+                        # 大于60s就终止系统标定
+                        if (timeEndVal - timeStartVal) > 60:
                             self.CanVariable.changeOperationStatus(4)
                             self.CanVariable.changeTimeOutVal(1)
                             canDLL.VCI_CloseDevice(VCI_USBCAN2, 0)
