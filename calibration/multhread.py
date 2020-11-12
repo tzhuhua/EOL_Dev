@@ -9,6 +9,10 @@ from .createdoc import CloseWorkbook
 from xlrd import open_workbook
 import time
 import os
+from StatusShow import statusdisplay
+import csv
+import global_variable as gv
+gv.set_variable('save_can_text_flag', False)
 VCI_USBCAN2 = 4
 STATUS_OK = 1
 
@@ -36,7 +40,6 @@ class mythread(threading.Thread):
     def run(self):
         #ListValueMessage = []
 
-        return
         ubyte_array = c_ubyte * 8
         a = ubyte_array(0, 0, 0, 0, 0, 0, 0, 0)
         ubyte_3array = c_ubyte * 3
@@ -85,6 +88,8 @@ class operationthread(threading.Thread):
 
     def run(self):
         OperationStatus = self.CanVariable.getOperationStatus()
+        name = gv.get_variable('can_log')
+
         #系统标定
         if OperationStatus == 1:
             # 得到距离值
@@ -102,14 +107,15 @@ class operationthread(threading.Thread):
             b = ubyte_3array(0, 0, 0)
             vci_can_obj = VCI_CAN_OBJ(0x635, 0, 0, 1, 0, 0, 8, a, b)  # 单次发送
             ret = canDLL.VCI_Transmit(VCI_USBCAN2, 0, self.channel, byref(vci_can_obj), 1)
-
             # 发送指令起始时间
+            gv.set_variable('save_can_text_flag', True)
+            print("sended")
             timeStartVal = time.time()
 
             while True:
                 ListValueMessage = self.CanVariable.getListValueMessage()
                 timeEndVal = time.time()
-                if np.array(ListValueMessage).shape[0] == 190:  # 这里接收的数据长度要注意，现在为190 187
+                if np.array(ListValueMessage).shape[0] > 1200:  # 这里接收的数据长度要注意，现在为190 187
                     wb = CreateWorkbook()
                     # print(ListValueMessage)
                     syscalibration(self.CaliResult, wb, self.CanVariable)
@@ -117,12 +123,14 @@ class operationthread(threading.Thread):
                     self.CanVariable.clearListValueMessage()
                     CloseWorkbook(wb, self.ExcelName, self.groupCanInfo)  # 保存
                     self.CanVariable.changeOperationStatus(2)
+                    gv.set_variable('save_can_text_flag', False)
                     break
                 # 大于60s就终止系统标定
                 if (timeEndVal - timeStartVal) > 60:
                     self.CanVariable.changeOperationStatus(2)
                     self.CanVariable.changeTimeOutVal(1)
                     # canDLL.VCI_CloseDevice(VCI_USBCAN2, 0)
+                    gv.set_variable('save_can_text_flag', False)
                     break
         #角度标定
         if OperationStatus == 3:
@@ -147,6 +155,7 @@ class operationthread(threading.Thread):
                 vci_can_obj = VCI_CAN_OBJ(0x635, 0, 0, 1, 0, 0, 8, a, b)  # 单次发送
 
                 ret = canDLL.VCI_Transmit(VCI_USBCAN2, 0, self.channel, byref(vci_can_obj), 1)
+                gv.set_variable('save_can_text_flag', True)
 
                 # 发送指令起始时间
                 timeStartVal = time.time()
@@ -160,12 +169,14 @@ class operationthread(threading.Thread):
                             anglecalibration(ListValueMessage, self.CalcAngleList)
                             self.CanVariable.clearListValueMessage()
                             self.CanVariable.changeOperationStatus(4)
+                            gv.set_variable('save_can_text_flag', False)
                             break
                         # 大于60s就终止系统标定
                         if (timeEndVal - timeStartVal) > 60:
                             self.CanVariable.changeOperationStatus(4)
                             self.CanVariable.changeTimeOutVal(1)
-                            canDLL.VCI_CloseDevice(VCI_USBCAN2, 0)
+                            # canDLL.VCI_CloseDevice(VCI_USBCAN2, 0)
+                            gv.set_variable('save_can_text_flag', False)
                             break
                     # 表明主界面可以进行再一次点击角度标定
                     self.CurAngleCaliCompleted.changeAngleCaliCompletedNum(0)
@@ -190,3 +201,22 @@ class operationthread(threading.Thread):
                     self.CanVariable.changeOperationStatus(7)
                     break
 
+
+
+
+class targetvaluethread(threading.Thread):
+    def __init__(self, CanVariable=None, targetShowValue=None):
+        threading.Thread.__init__(self)
+        self.CanVariable = CanVariable
+        self.targetShowValue = targetShowValue
+
+    def run(self):
+        while(True):
+            # 处理需要显示的点击
+            message70ACompleted = self.CanVariable.getmessage70ACompleted()
+            if message70ACompleted == 2:
+                # 获取target信息
+                ClusterMessageValueResult = self.CanVariable.getClusterMessageValueResult()
+                statusdisplay.analysisTargetRawData(self.targetShowValue, ClusterMessageValueResult)
+                self.CanVariable.clearClusterMessageValueResult()
+                self.CanVariable.writeMessage70ACompletedVal(1)

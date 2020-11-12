@@ -4,7 +4,7 @@ block_cipher = None
 
 
 a = Analysis(['main.py'],
-             pathex=['F:\\李翔鹏\\任务交接\\任务交接\\代码\\源码\\EOL\\标定_250K_Dev_v2.2'],
+             pathex=['E:\\Pythonfiles\\EOL_Dev'],
              binaries=[],
              datas=[('ControlCAN.dll', '.')],
              hiddenimports=[],
@@ -17,8 +17,7 @@ a = Analysis(['main.py'],
              noarchive=False)
 pyz = PYZ(a.pure, a.zipped_data,
              cipher=block_cipher)
-			 
-			 
+
 exe1 = EXE(pyz,
           a.scripts,
           a.binaries,                          ###!!!注意点2
@@ -26,24 +25,22 @@ exe1 = EXE(pyz,
           a.datas,                             ###!!!注意点2
           [],
           exclude_binaries=False,   ###!!!注意点3：这里是False
-          name='can',
+          name='main',
           debug=False,
           bootloader_ignore_signals=False,
           strip=False,
           upx=True,
           console=False)
-			 
 exe2 = EXE(pyz,
           a.scripts,
           [],
           exclude_binaries=True,
-          name='can',
+          name='main',
           debug=False,
           bootloader_ignore_signals=False,
           strip=False,
           upx=True,
-          console=True )
-		  
+          console=False )
 coll = COLLECT(exe2,
                a.binaries,
                a.zipfiles,
@@ -51,4 +48,4 @@ coll = COLLECT(exe2,
                strip=False,
                upx=True,
                upx_exclude=[],
-               name='can')
+               name='main')

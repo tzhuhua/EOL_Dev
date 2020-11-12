@@ -1,20 +1,29 @@
 #python3.8.0 64位（python 32位要用32位的DLL）
 #
-from threading import Thread
+import threading
 from queue import Queue
 import datetime
 import  time
+import pyqtgraph as pg
+from pyqtgraph.Qt import QtCore
+import csv
+from threading import Timer
 import global_variable as gv
 gv._init()
+gv.set_variable('status_flag', False)
 from matplotlib.animation import FuncAnimation
 import random
+from calibration.definevariable import definevariable
 from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import Qt
+from PyQt5 import QtCore, QtWidgets
 from ctypes import *
 import ctypes
 import inspect
 from PyQt5.QtWidgets import QApplication, QWidget, QMainWindow, QButtonGroup
 from sys import argv, exit
 from os import getcwd
+import os
 from xlrd import open_workbook
 from calibration.multhread import operationthread
 import numpy as np
@@ -22,6 +31,7 @@ from calibration.anglecalibration import writeanglecalibration
 from calibrationWindow import Ui_biaoding
 from warning import Ui_warning
 from confirm import Ui_Confirm
+from StatusShow import statusdisplay
 
 from calibration import snvalue
 from CanOperation import canoperation
@@ -35,6 +45,13 @@ from calibration.definevariable import anglecalibrationpress
 # 角度标定已经完成的角度个数
 from calibration.definevariable import anglecalibrationcompletednum
 import math
+from StatusShow import targetstatus
+
+#存储处理数据的线程
+from calibration.definevariable import operationthreadvariables
+
+from calibration.definevariable import targetshowvalue
+
 VCI_USBCAN2 = 4
 STATUS_OK = 1
 
@@ -63,10 +80,11 @@ class VCI_CAN_OBJ(Structure):
 
 CanDLLName = './ControlCAN.dll' #把DLL放到对应的目录下
 canDLL = windll.LoadLibrary('./ControlCAN.dll')
+gv.set_variable('dll', canDLL)
+
 #Linux系统下使用下面语句，编译命令：python3 python3.8.0.py
 #canDLL = cdll.LoadLibrary('./libcontrolcan.so')
 #canDLL = cdll.LoadLibrary('./libcontrolcan.so')
-
 def _async_raise(tid, exctype):
     """raises the exception, performs cleanup if needed"""
     tid = ctypes.c_long(tid)
@@ -93,33 +111,27 @@ class WarningWindow(Ui_warning, QWidget):
     def show_text(self, message):
         self.Warninglabel.setText(message)
 
-def write_test_flow(Can1Variable, Can2Variable, groupCan1Info, groupCan2Info, SysCaliResult, excelSnNameVal):
-    if groupCan1Info != "无" and groupCan2Info == "无":
+def write_test_flow(Can1Variable, Can2Variable, SysCaliResult, excelSnNameVal, can_num):
+    if Can1Variable and can_num==1:
         Can1Variable.changeOperationStatus(1)
-        opCan1 = operationthread(CaliResult=SysCaliResult, CanVariable=Can1Variable, ExcelName=excelSnNameVal, channel=0, groupCanInfo=groupCan1Info)  # 实例化线程
+        opCan1 = operationthread(CaliResult=SysCaliResult, CanVariable=Can1Variable, ExcelName=excelSnNameVal, channel=0)  # 实例化线程
         opCan1.daemon = False  # 当 daemon = False 时，线程不会随主线程退出而退出（默认时，就是 daemon = False）
         opCan1.start()  # 开启ta线程
-    if groupCan1Info == "无" and groupCan2Info != "无":
+    if Can2Variable and can_num==2:
         Can2Variable.changeOperationStatus(1)
-        opCan2 = operationthread(CaliResult=SysCaliResult, CanVariable=Can2Variable, ExcelName=excelSnNameVal, channel=1, groupCanInfo=groupCan2Info)  # 实例化线程
+        opCan2 = operationthread(CaliResult=SysCaliResult, CanVariable=Can2Variable, ExcelName=excelSnNameVal, channel=1)  # 实例化线程
         opCan2.daemon = False  # 当 daemon = False 时，线程不会随主线程退出而退出（默认时，就是 daemon = False）
         opCan2.start()  # 开启ta线程
-    if groupCan1Info != "无" and groupCan2Info != "无":
-        Can1Variable.changeOperationStatus(1)
-        Can2Variable.changeOperationStatus(1)
-        opCan1 = operationthread(CaliResult=SysCaliResult, CanVariable=Can1Variable, ExcelName=excelSnNameVal, channel=0, groupCanInfo=groupCan1Info)  # 实例化线程
-        opCan2 = operationthread(CaliResult=SysCaliResult, CanVariable=Can2Variable, ExcelName=excelSnNameVal, channel=1, groupCanInfo=groupCan2Info)  # 实例化线程
-        opCan1.daemon = False  # 当 daemon = False 时，线程不会随主线程退出而退出（默认时，就是 daemon = False）
-        opCan2.daemon = False
-        opCan1.start()  # 开启ta线程
-        opCan2.start()
 
-def start_can_test(groupCan1Info, groupCan2Info, SysCaliResult=None, excelSnNameVal=None):
-    Can1Variable, Can2Variable, ta1, ta2 = canoperation.can_open(groupCan1Info, groupCan2Info)
-
+def start_can_test(SysCaliResult=None, excelSnNameVal=None, can_num=None):
+    # Can1Variable, Can2Variable, ta1, ta2 = canoperation.can_open(groupCan1Info, groupCan2Info)
+    Can1Variable = gv.get_variable("Can1Variable")
+    Can2Variable = gv.get_variable("Can2Variable")
+    ta1 = gv.get_variable("ta1")
+    ta2 = gv.get_variable("ta2")
     #从系统标定开始做
     if SysCaliResult != None:
-        write_test_flow(Can1Variable, Can2Variable, groupCan1Info, groupCan2Info, SysCaliResult, excelSnNameVal)
+        write_test_flow(Can1Variable, Can2Variable, SysCaliResult, excelSnNameVal, can_num)
     # else:
     #     write_angle_test_flow(Can1Variable, Can2Variable, groupCan1Info, groupCan2Info, excelSnNameVal)
 
@@ -127,7 +139,7 @@ def start_can_test(groupCan1Info, groupCan2Info, SysCaliResult=None, excelSnName
 
 #Confirm 窗口
 class ConfirmWindow(Ui_Confirm, QWidget):
-    def __init__(self, doubleCanVariable, SysCaliResult=None, AngleResult=None, SteplineEdit=None, angleCalibrationPress=None):
+    def __init__(self, doubleCanVariable, SysCaliResult=None, AngleResult=None, SteplineEdit=None, angleCalibrationPress=None, can =None):
         super(ConfirmWindow, self).__init__()
         self.setupUi(self)
         self.groupCan1Info = 0
@@ -140,7 +152,7 @@ class ConfirmWindow(Ui_Confirm, QWidget):
         self.groupCan2 = 0
         # can通路
         self.doubleCanVariable = doubleCanVariable
-
+        self.can_num = can
         #雷达SN号/安装位置错误，默认值为0，1为安装错误，2为安装正确
         self.errorValue = 0
         #确认，开始测试并关闭窗口
@@ -162,120 +174,35 @@ class ConfirmWindow(Ui_Confirm, QWidget):
 
         #只有角度标定时，判断是否开始角度标定
         self.angleCalibrationPress = angleCalibrationPress
-    def show_text(self, groupCan1Info, groupCan2Info, groupCanTypeInfo, canSnNumber, groupCan1, groupCan2, batchNum, clientCode):
-        self.groupCan1Info = groupCan1Info
-        self.groupCan2Info = groupCan2Info
-        self.groupCanTypeInfo = groupCanTypeInfo
-        self.canSnNumber = canSnNumber
-        self.groupCan1 = groupCan1
-        self.groupCan2 = groupCan2
-        self.batchNum = batchNum
-        self.clientCode = clientCode
-        if self.groupCanTypeInfo == 'RFRR':
-            if self.groupCan1Info == '右前' and self.groupCan2Info == '右后':
-                strMessage = "批次：" + batchNum + '\n'
-                strMessage += "Can雷达SN号：" + canSnNumber + '\n'
-                strMessage += "客户编码：" + clientCode + '\n'
-                strMessage += "Can1雷达安装位置为：" + groupCan1Info + '\n'  # 加的操作只能针对str类型
-                strMessage += "Can2雷达安装位置为：" + groupCan2Info + '\n'
-                self.errorValue = 2
-            else:
-                strMessage = "雷达安装类型或者安装位置出错" + '\n'
-                self.errorValue = 1
-        elif self.groupCanTypeInfo == 'RF':
-            if self.groupCan1Info == '右前' and self.groupCan2Info == '无':
-                strMessage = "批次：" + batchNum + '\n'
-                strMessage += "Can雷达SN号：" + canSnNumber + '\n'
-                strMessage += "客户编码：" + clientCode + '\n'
-                strMessage += "Can1雷达安装位置为：" + groupCan1Info + '\n'  # 加的操作只能针对str类型
-                strMessage += "Can2无雷达" + '\n'
-                self.errorValue = 2
-            else:
-                strMessage = "雷达安装类型或者安装位置出错" + '\n'
-                self.errorValue = 1
-        elif self.groupCanTypeInfo == 'RR':
-            if self.groupCan1Info == '无' and self.groupCan2Info == '右后':
-                strMessage = "批次：" + batchNum + '\n'
-                strMessage += "Can雷达SN号：" + canSnNumber + '\n'
-                strMessage += "客户编码：" + clientCode + '\n'
-                strMessage += "Can1无雷达" + '\n'
-                strMessage += "Can2雷达安装位置为：" + groupCan2Info + '\n'  # 加的操作只能针对str类型
-                self.errorValue = 2
-            else:
-                strMessage = "雷达安装类型或者安装位置出错" + '\n'
-                self.errorValue = 1
-        if self.groupCanTypeInfo == 'LFLR':
-            if self.groupCan1Info == '左后' and self.groupCan2Info == '左前':
-                strMessage = "批次：" + batchNum + '\n'
-                strMessage += "Can雷达SN号：" + canSnNumber + '\n'
-                strMessage += "客户编码：" + clientCode + '\n'
-                strMessage += "Can1雷达安装位置为：" + groupCan1Info + '\n'  # 加的操作只能针对str类型
-                strMessage += "Can2雷达安装位置为：" + groupCan2Info + '\n'
-                self.errorValue = 2
-            else:
-                strMessage = "雷达安装类型或者安装位置出错" + '\n'
-                self.errorValue = 1
-        elif self.groupCanTypeInfo == 'LF':
-            if self.groupCan1Info == '无' and self.groupCan2Info == '左前':
-                strMessage = "批次：" + batchNum + '\n'
-                strMessage += "Can雷达SN号：" + canSnNumber + '\n'
-                strMessage += "客户编码：" + clientCode + '\n'
-                strMessage += "Can1无雷达" + '\n'
-                strMessage += "Can2雷达安装位置为：" + groupCan2Info + '\n'  # 加的操作只能针对str类型
-                self.errorValue = 2
-            else:
-                strMessage = "雷达安装类型或者安装位置出错" + '\n'
-                self.errorValue = 1
-        elif self.groupCanTypeInfo == 'LR':
-            if self.groupCan1Info == '左后' and self.groupCan2Info == '无':
-                strMessage = "批次：" + batchNum + '\n'
-                strMessage += "Can雷达SN号：" + canSnNumber + '\n'
-                strMessage += "客户编码：" + clientCode + '\n'
-                strMessage += "Can1雷达安装位置为：" + groupCan1Info + '\n'  # 加的操作只能针对str类型
-                strMessage += "Can2无雷达" + '\n'
-                self.errorValue = 2
-            else:
-                strMessage = "雷达安装类型或者安装位置出错" + '\n'
-                self.errorValue = 1
-
+    def show_text(self):
+        strMessage = "启动系统标定？"
         self.textBrowser.setText(strMessage)
-
         return self.errorValue
 
     def enter_test_mode(self):
         # 从系统标定开始做起
         if self.SysCaliResult != None:
-            if self.errorValue == 2:
-                #拼接成excel的名称
-                excelSnNameVal = snvalue.create_excel_sn(self.batchNum, self.canSnNumber, self.clientCode)
-                Can1Variable, Can2Variable, ta1, ta2 = start_can_test(self.groupCan1Info, self.groupCan2Info, self.SysCaliResult, excelSnNameVal)
-                self.doubleCanVariable.changeCanVariable(Can1Variable, Can2Variable, ta1, ta2, excelSnNameVal)
-                #主窗口的“确认”按钮后面显示“正在测试”/“完成”
-                opMainWindow = MainWindowThread(Can1Variable, Can2Variable, self.SysCaliResult, ta1=ta1, ta2=ta2)
-                opMainWindow.daemon = False  # 当 daemon = False 时，线程不会随主线程退出而退出（默认时，就是 daemon = False）
-                opMainWindow.start()  # 开启ta线程
-                #关掉自身窗口
-                self.close()
-            elif self.errorValue == 1:
-                self.errorValue = 0
-                # 关掉自身窗口
-                self.close()
+            #拼接成excel的名称
+            excelSnNameVal = snvalue.create_excel_sn()
+            Can1Variable, Can2Variable, ta1, ta2 = start_can_test(self.SysCaliResult, excelSnNameVal, self.can_num)
+            self.doubleCanVariable.changeCanVariable(Can1Variable, Can2Variable, ta1, ta2, excelSnNameVal)
+            #主窗口的“确认”按钮后面显示“正在测试”/“完成”
+            opMainWindow = MainWindowThread(Can1Variable, Can2Variable, self.SysCaliResult, ta1=ta1, ta2=ta2, can_num=self.can_num)
+            opMainWindow.daemon = False  # 当 daemon = False 时，线程不会随主线程退出而退出（默认时，就是 daemon = False）
+            opMainWindow.start()  # 开启ta线程
+            #关掉自身窗口
+            self.close()
         else:
             # 从角度标定开始做起
-            if self.errorValue == 2:
-                excelSnNameVal = snvalue.create_excel_sn(self.batchNum, self.canSnNumber, self.clientCode)
-                Can1Variable, Can2Variable, ta1, ta2 = start_can_test(self.groupCan1Info, self.groupCan2Info, excelSnNameVal=excelSnNameVal)
-                self.doubleCanVariable.changeCanVariable(Can1Variable, Can2Variable, ta1, ta2, excelSnNameVal)
-                #开始做角度标定
-                self.angleCalibrationPress.changeAngleCaliPress(1)
-                #提醒可以做角度标定
-                self.SteplineEdit.setText("确认做角度标定，点击“启动”")
-                # 关掉自身窗口
-                self.close()
-            elif self.errorValue == 1:
-                self.errorValue = 0
-                # 关掉自身窗口
-                self.close()
+            excelSnNameVal = snvalue.create_excel_sn()
+            Can1Variable, Can2Variable, ta1, ta2 = start_can_test(self.groupCan1Info, self.groupCan2Info, excelSnNameVal=excelSnNameVal)
+            self.doubleCanVariable.changeCanVariable(Can1Variable, Can2Variable, ta1, ta2, excelSnNameVal)
+            #开始做角度标定
+            self.angleCalibrationPress.changeAngleCaliPress(1)
+            #提醒可以做角度标定
+            self.SteplineEdit.setText("确认做角度标定，点击“启动”")
+            # 关掉自身窗口
+            self.close()
 
 
 class Refresh(QThread):
@@ -289,6 +216,7 @@ class Refresh(QThread):
         while True:
             target = gv.get_variable('target')
             if target:
+                time.sleep(0.01)
                 self.ax.cla()
                 self.ax.set_thetagrids(np.arange(-90, 91, 10.0))
                 self.ax.set_theta_zero_location('N')
@@ -308,10 +236,17 @@ class Refresh(QThread):
 
 class CanThrerad(QThread):
     text = pyqtSignal(object)
+    dongtai_frame = pyqtSignal(object)
     # draw = pyqtSignal(list)
-    def __init__(self):
+    def __init__(self, channel, CanVariable):
         super().__init__()
         self.cluster_list = [[],[],[]]
+        self.channel = channel
+        self.CanVariable = CanVariable
+        self.ta1 = 0
+        self.ta2 = 0
+
+
     def run(self):
         VCI_USBCAN2A = 4
         STATUS_OK = 1
@@ -325,94 +260,135 @@ class CanThrerad(QThread):
                         ("Timing1", c_ubyte),
                         ("Mode", c_ubyte)
                         ]
+        fild = []
+        for i in range(100):
+            temp = [("ID" + str(1+i), c_uint),
+                    ("TimeStamp" + str(1+i), c_uint),
+                    ("TimeFlag" + str(1+i), c_ubyte),
+                    ("SendType" + str(1+i), c_ubyte),
+                    ("RemoteFlag" + str(1+i), c_ubyte),
+                    ("ExternFlag" + str(1+i), c_ubyte),
+                    ("DataLen" + str(1+i), c_ubyte),
+                    ("Data" + str(1+i), c_ubyte * 8),
+                    ("Reserved" + str(1+i), c_ubyte * 3)
+                    ]
+            fild = fild + temp
+
 
         class VCI_CAN_OBJ(Structure):
-            _fields_ = [("ID", c_uint),
-                        ("TimeStamp", c_uint),
-                        ("TimeFlag", c_ubyte),
-                        ("SendType", c_ubyte),
-                        ("RemoteFlag", c_ubyte),
-                        ("ExternFlag", c_ubyte),
-                        ("DataLen", c_ubyte),
-                        ("Data", c_ubyte * 8),
-                        ("Reserved", c_ubyte * 3)
-                        ]
-
-        CanDLLName = 'E:\Pythonfiles\EOL_Dev\ControlCAN.dll'  # DLL是32位的，必须使用32位的PYTHON
-        canDLL = windll.LoadLibrary(CanDLLName)
-        print(CanDLLName)
-
+            _fields_ = fild
+        canDLL = gv.get_variable('dll')
         ret = canDLL.VCI_OpenDevice(VCI_USBCAN2A, 0, 0)
         print(ret)
         if ret != STATUS_OK:
             print('调用 VCI_OpenDevice出错\r\n')
 
-        # 初始0通道
-        vci_initconfig = VCI_INIT_CONFIG(0x80000008, 0xFFFFFFFF, 0,
-                                         2, 0x00, 0x1C, 0)
-        ret = canDLL.VCI_InitCAN(VCI_USBCAN2A, 0, 0, byref(vci_initconfig))
+        # 初始化通道
+        vci_initconfig = VCI_INIT_CONFIG(0x80000008, 0xFFFFFFFF, 0, 2, 0x00, 0x1C, 0)
+        ret = canDLL.VCI_InitCAN(VCI_USBCAN2A, 0, self.channel, byref(vci_initconfig))
         if ret != STATUS_OK:
             print('调用 VCI_InitCAN出错\r\n')
+            return
 
-        ret = canDLL.VCI_StartCAN(VCI_USBCAN2A, 0, 0)
+        ret = canDLL.VCI_StartCAN(VCI_USBCAN2A, 0, self.channel)
         if ret != STATUS_OK:
             print('调用 VCI_StartCAN出错\r\n')
+            return
 
-        # 通道0发送数据
+        # # 通道0发送数据
+        # ubyte_array = c_ubyte * 8
+        # self.array = ubyte_array(0xC1, 0x51, 0x5B, 0x05, 0x64, 0x00, 0x0A, 0x0)
+        # a = self.array
+        # ubyte_3array = c_ubyte * 3
+        # b = ubyte_3array(0, 0, 0)
+        # vci_can_obj = VCI_CAN_OBJ(0x635, 0, 0, 1, 0, 0, 8, a, b)
+
+        # ret = canDLL.VCI_Transmit(VCI_USBCAN2A, 0, 0, byref(vci_can_obj), 1)
+
         ubyte_array = c_ubyte * 8
-        self.array = ubyte_array(0xC1, 0x51, 0x5B, 0x05, 0x64, 0x00, 0x0A, 0x0)
-        a = self.array
         ubyte_3array = c_ubyte * 3
-        b = ubyte_3array(0, 0, 0)
-        vci_can_obj = VCI_CAN_OBJ(0x635, 0, 0, 1, 0, 0, 8, a, b)
-
-        ret = canDLL.VCI_Transmit(VCI_USBCAN2A, 0, 0, byref(vci_can_obj), 1)
-
         a = ubyte_array(0, 0, 0, 0, 0, 0, 0, 0)
-        vci_can_obj = VCI_CAN_OBJ(0x0, 0, 0, 1, 0, 0, 8, a, b)
+        b = ubyte_3array(0, 0, 0)
+        vci_can_obj = VCI_CAN_OBJ(*(0x0, 0, 0, 1, 0, 0, 8, a, b)*100)
         # ret = canDLL.VCI_Receive(VCI_USBCAN2A, 0, 0, byref(vci_can_obj), 1, 0)
+        name = "can_log_"+time.strftime('%H%M%S')+".csv"
+        gv.set_variable('can_log', name)
         while True:
-            # while ret <= 0:
-            # print('调用 VCI_Receive 出错\r\n')
-            ret = canDLL.VCI_Receive(VCI_USBCAN2A, 0, 0, byref(vci_can_obj), 1, 0)
+            dongtai_flag = False
+            vci_can_obj = VCI_CAN_OBJ(*(0x0, 0, 0, 1, 0, 0, 8, a, b) * 100)
+            ret = canDLL.VCI_Receive(VCI_USBCAN2, 0, self.channel, byref(vci_can_obj), 100, 0)    #每次接收一帧数据，这里设为1
+            # while ret <= 0:  # 如果没有接收到数据，一直循环查询接收。
+            #     ret = canDLL.VCI_Receive(VCI_USBCAN2, 0, self.channel, byref(vci_can_obj), 100, 400)
             if ret > 0:
-                id= vci_can_obj.ID
-                data = list(vci_can_obj.Data)
-                gv.set_variable("current_frame", [id, data])
-                print([id, data])
-                # self.browser.append(f'{id}  {data}')
-                self.text.emit([id, data])
-                if id == 1802 or id == 1803:
-                    bin_can_frame_list = [bin(x)[2:].zfill(8) for x in data]
-                    bin_can_frame_str = ''.join(bin_can_frame_list)
-                    if id == 1802:
-                        gv.set_variable('target', self.cluster_list)
-                        self.cluster_list = [[], [], data[0]]
+                time_now = datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]
 
-                    if id == 1803:
-                        ID = int(bin_can_frame_str[0:8], 2)
-                        DistLong = int(bin_can_frame_str[8:18], 2) * 0.2 - 102
-                        DistLat = int(bin_can_frame_str[18:28], 2) * 0.2 - 102
-                        # VrelLong = int(bin_can_frame_str[28:38], 2) * 0.25 - 128
-                        # VrelLat = int(bin_can_frame_str[38:47], 2) * 0.25 - 64
-                        # Status = (int(bin_can_frame_str[50:53], 2))
-                        # PossibilitofExist = (int(bin_can_frame_str[53:56], 2))
-                        # RCS = int(bin_can_frame_str[56:64], 2) * 0.5 - 64
-                        # # print(ID)
-                        # # print(DistLong)
-                        # # print(DistLat)
-                        # # print(VrelLong)
-                        # # print(VrelLat)
-                        # # print(Status)
-                        # # print(PossibilitofExist)
-                        # # print(RCS)
-                        theta = math.atan2(DistLat, DistLong)
-                        r = math.sqrt(DistLong * DistLong + DistLat * DistLat)
-                        self.cluster_list[0].extend([theta])
-                        self.cluster_list[1].extend([r])
+                # num = canDLL.VCI_GetReceiveNum(VCI_USBCAN2A, 0, 1)
+                # print(num)
+                # id= vci_can_obj.ID1
+                # data = list(vci_can_obj.Data1)
+                frame = []
+                if gv.get_variable("can_data_to_radar") != "":
+                    frame.extend(gv.get_variable("can_data_to_radar"))
+                    gv.set_variable("can_data_to_radar", "")
+                for i in range(100):
+                    vci_ID = "vci_can_obj.ID"
+                    vci_Data = "vci_can_obj.Data"
+                    vci_ID = vci_ID + str(i + 1)
+                    vci_Data = vci_Data + str(i + 1)
+                    # print(vci_ID)
+                    id = eval(vci_ID)
+                    data = eval(vci_Data)
+                    if id != 0x0:
+                        can_frame = ' '.join([hex(x)[2:].upper().zfill(2) for x in data])
+                        frame.extend([[time_now, 'from radar', hex(id).upper(), can_frame]])
+                        if id == 0x7F8:
+                            self.CanVariable.setTargetStatusMessage(list(data))
+                        if gv.get_variable('save_can_text_flag'):
+                            StoreValue = []
+                            StoreValue.append(id)
+                            for value in list(data):
+                                StoreValue.append(value)
+                            # ListValueMessage.append(StoreValue)
+                            self.CanVariable.appendListValueMessage(StoreValue)
+                        if id == 0x70B:
+                            bin_can_frame_list = [bin(x)[2:].zfill(8) for x in data]
+                            bin_can_frame_str = ''.join(bin_can_frame_list)
+                            ID = int(bin_can_frame_str[0:8], 2)
+                            DistLong = int(bin_can_frame_str[8:18], 2) * 0.2 - 102
+                            DistLat = int(bin_can_frame_str[18:28], 2) * 0.2 - 102
+                            # VrelLong = int(bin_can_frame_str[28:38], 2) * 0.25 - 128
+                            # VrelLat = int(bin_can_frame_str[38:47], 2) * 0.25 - 64
+                            # Status = (int(bin_can_frame_str[50:53], 2))
+                            # PossibilitofExist = (int(bin_can_frame_str[53:56], 2))
+                            # RCS = int(bin_can_frame_str[56:64], 2) * 0.5 - 64
+                            # # print(ID)
+                            # # print(DistLong)
+                            # # print(DistLat)
+                            # # print(VrelLong)
+                            # # print(VrelLat)
+                            # # print(Status)
+                            # # print(PossibilitofExist)
+                            # # print(RCS)
+                            theta = math.atan2(DistLat, DistLong)
+                            r = math.sqrt(DistLong * DistLong + DistLat * DistLat)
+                            self.cluster_list[0].extend([theta])
+                            self.cluster_list[1].extend([r])
+                        if id == 0x70A:
+                            gv.set_variable('target', self.cluster_list)
+                            self.cluster_list = [[], []]
+                        if id == 0x7EA:
+                            dongtai_flag = True
+                    else:
+                        break
 
-        # 关闭
-        canDLL.VCI_CloseDevice(VCI_USBCAN2A, 0)
+                self.text.emit(frame)
+                if dongtai_flag:
+                    self.dongtai_frame.emit(frame)
+                # with open (name, 'a', newline="") as can_log_file:
+                #     writer = csv.writer(can_log_file)
+                #     writer.writerow([time.strftime("%Y-%m-%d %H-%M-%S"), hex(id), data])
+
+                # dd = canDLL.VCI_ClearBuffer(VCI_USBCAN2A, 0, 1)
 
 class MyApp(Ui_biaoding,QMainWindow):
     def __init__(self):
@@ -422,7 +398,6 @@ class MyApp(Ui_biaoding,QMainWindow):
         self.queue_targets= Queue()
         gv.set_variable('target', [])
         self.cluster_list = [[], [], []]
-        self.initUI()
 
         #通道选择
         self.channel1 = 0
@@ -432,15 +407,23 @@ class MyApp(Ui_biaoding,QMainWindow):
         self.SysCaliStart.clicked.connect(self.SysCalibrationFunction)
         #Angle Calibration
         self.AngleCaliStart.clicked.connect(self.AngleCaliFunction)
-        #Type99
-        self.pushButtonEnd.clicked.connect(self.Type99Function)
+        #Target Status
+        self.statuspushButton.clicked.connect(self.TargetStatusFunction)
+        #扩展模式
+        self.pushButton_kuozhan.clicked.connect(self.kuozhan_mode)
+        self.comboBox_radar_type.currentTextChanged.connect(self.radar_type)
+        self.pushButton_biaoding_history.clicked.connect(self.read_history)
+        self.pushButton_start_biaoding.clicked.connect(self.run_biaoding)
+        self.pushButton_biaoding_value.clicked.connect(self.result_biaoding)
+
+
 
         self.FilePath = 0
         self.cwd = getcwd()  # 获取当前程序文件位置
 
         self.Can1Variable = None
         self.Can2Variable = None
-
+        self.CanVariable = None
         #首次角度标定
         self.AngleNum = 0
         #存储左雷达值
@@ -487,128 +470,178 @@ class MyApp(Ui_biaoding,QMainWindow):
         # self.can_live.setDaemon(True)
         # self.can_live.start()
 
-    def show_CanText(self):
+        # 存储处理数据的线程
+        self.operationThreadVariables = operationthreadvariables()
 
-        VCI_USBCAN2A = 4
-        STATUS_OK = 1
+        self.timer = 0
 
-        class VCI_INIT_CONFIG(Structure):
-            _fields_ = [("AccCode", c_ulong),
-                        ("AccMask", c_ulong),
-                        ("Reserved", c_ulong),
-                        ("Filter", c_ubyte),
-                        ("Timing0", c_ubyte),
-                        ("Timing1", c_ubyte),
-                        ("Mode", c_ubyte)
-                        ]
+        self.targetShowValue = targetshowvalue()
 
-        class VCI_CAN_OBJ(Structure):
-            _fields_ = [("ID", c_uint),
-                        ("TimeStamp", c_uint),
-                        ("TimeFlag", c_ubyte),
-                        ("SendType", c_ubyte),
-                        ("RemoteFlag", c_ubyte),
-                        ("ExternFlag", c_ubyte),
-                        ("DataLen", c_ubyte),
-                        ("Data", c_ubyte * 8),
-                        ("Reserved", c_ubyte * 3)
-                        ]
+        #保存target旧值
+        self.targetShowValueOld = 0
+        #第一次显示cluster
+        self.firstTimeDisplay = 0
 
-        CanDLLName = 'E:\Pythonfiles\EOL_Dev\ControlCAN.dll'  # DLL是32位的，必须使用32位的PYTHON
-        canDLL = windll.LoadLibrary(CanDLLName)
-        print(CanDLLName)
+        #保存旧值
+        self.TargetStatusMessageOld = []
+        self.canSelectcomboBox.currentTextChanged.connect(self.get_current_can)
+        self.can_num = 0
+        self.thread_list = []
+        self.get_current_can()
 
-        ret = canDLL.VCI_OpenDevice(VCI_USBCAN2A, 0, 0)
-        print(ret)
-        if ret != STATUS_OK:
-            print('调用 VCI_OpenDevice出错\r\n')
+        gv.set_variable('can_data_to_radar', "")
+        self.progress_ask_flag = True
+        self.current_radar_type = '角雷达'
+        self.progressBar.setValue(0)
+        self.label_history.setText("标定历史")
+        self.label_biaoding_value.setText("标定结果")
+    def closeEvent(self, event):
+        """
+        对MainWindow的函数closeEvent进行重构
+        退出软件时结束所有进程
+        :param event:
+        :return:
+        """
+        reply = QtWidgets.QMessageBox.question(self,
+                                               '标定程序',
+                                               "是否要退出程序？",
+                                               QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                                               QtWidgets.QMessageBox.No)
+        if reply == QtWidgets.QMessageBox.Yes:
+            dll = gv.get_variable('dll')
+            dll.VCI_CloseDevice(4, 0)
+            event.accept()
+            os._exit(0)
+        else:
+            event.ignore()
+    """
+    各种动态标定指令
+    """
+    def check(self, moshi):
+        if moshi == "kuozhan":
+            if self.pushButton_kuozhan.text()== "进入扩展模式":
+                self.pushButton_kuozhan.setText("进入扩展模式失败！")
 
-        # 初始0通道
-        vci_initconfig = VCI_INIT_CONFIG(0x80000008, 0xFFFFFFFF, 0,
-                                         2, 0x00, 0x1C, 0)
-        ret = canDLL.VCI_InitCAN(VCI_USBCAN2A, 0, 0, byref(vci_initconfig))
-        if ret != STATUS_OK:
-            print('调用 VCI_InitCAN出错\r\n')
+    def kuozhan_mode(self):
+        targetstatus.dongtai_biaoding(self.can_num, "kuozhan")
+        t = Timer(4, self.check, ('kuozhan', ))
+        t.start()
+    def read_history(self):
+        targetstatus.dongtai_biaoding(self.can_num, "history")
+    def run_biaoding(self):
+        targetstatus.dongtai_biaoding(self.can_num, "run")
+        self.progress_ask_flag = True
+    def result_biaoding(self):
+        targetstatus.dongtai_biaoding(self.can_num, "result")
+    def radar_type(self):
+        self.current_radar_type = self.comboBox_radar_type.currentText()
+        targetstatus.dongtai_biaoding(self.can_num, "radar")
+    def success_biaoding(self):
+        targetstatus.dongtai_biaoding(self.can_num, "success")
+    def online_biaoding(self):
+        targetstatus.dongtai_biaoding(self.can_num, "online")
 
-        ret = canDLL.VCI_StartCAN(VCI_USBCAN2A, 0, 0)
-        if ret != STATUS_OK:
-            print('调用 VCI_StartCAN出错\r\n')
+    def keep_online(self):
+        self.online_biaoding()
+        keep = Timer(0.5, self.keep_online)
+        keep.start()
+        #keep.cancel()
 
-        # 通道0发送数据
-        ubyte_array = c_ubyte * 8
-        a = ubyte_array(1, 2, 3, 4, 5, 6, 7, 64)
-        ubyte_3array = c_ubyte * 3
-        b = ubyte_3array(0, 0, 0)
-        # vci_can_obj = VCI_CAN_OBJ(0x0, 0, 0, 1, 0, 0, 8, a, b)
+    def ask_progress(self):
+        targetstatus.dongtai_biaoding(self.can_num, "progress")
+        pro = Timer(0.1, self.ask_progress)
+        pro.start()
+        if not self.progress_ask_flag:
+            pro.cancel()
 
-        # ret = canDLL.VCI_Transmit(VCI_USBCAN2A, 0, 0, byref(vci_can_obj), 1)
-        # if ret != STATUS_OK:
-        #     print('调用 VCI_Transmit 出错\r\n')
+    def dongtai_ui(self, dongtai_frame):
+        for frame in dongtai_frame:
+            if frame[2] == "0X7EA":
+                frame_data = frame[3].split(" ")
+                if frame_data[1] == '50':
+                    self.pushButton_kuozhan.setText('已经进入扩展模式')
+                    self.pushButton_kuozhan.setEnabled(False)
+                    self.keep_online()
+                if frame_data[1] == '62':
+                    if frame_data[4] == "00":
+                        self.label_history.setText("未做过动态标定")
+                    if frame_data[4] == "01":
+                        self.label_history.setText("已做过动态标定")
+                if frame_data[1] == "71" and frame_data[2] == "01":
+                    self.ask_progress()
+                if frame_data[1] == "71" and frame_data[2] == "03":
+                    value = int(frame_data[5], 16)
+                    if self.progress_ask_flag:
+                        self.progressBar.setValue(value)
+                    if value == 100:
+                        self.progress_ask_flag = False
+                if frame_data[1] == "62" and frame_data[2] == "03" and frame_data[3] == "06":
+                    if frame_data[4] == "01":
+                        self.label_biaoding_value.setText('标定成功')
+                        self.success_biaoding()
+                    else:
+                        self.label_biaoding_value.setText('标定失败')
+                if frame_data[1] == "62" and frame_data[2] == "03" and frame_data[3] == "07":
+                    if self.current_radar_type == '角雷达':
+                        biaoding_value = int(frame_data[4] + frame_data[5], 16)*0.01
+                    else:
+                        biaoding_value = int(frame_data[4] + frame_data[5], 16) * 0.01-15
+                    self.label_biaoding_value.setText('标定结果:'+str(biaoding_value))
 
-        # 通道1接收数据
-        a = ubyte_array(0, 0, 0, 0, 0, 0, 0, 0)
-        vci_can_obj = VCI_CAN_OBJ(0x0, 0, 0, 1, 0, 0, 8, a, b)
-        ret = canDLL.VCI_Receive(VCI_USBCAN2A, 0, 0, byref(vci_can_obj), 1, 0)
-        print(ret)
-        while True:
-            # while ret <= 0:
-            # print('调用 VCI_Receive 出错\r\n')
-            ret = canDLL.VCI_Receive(VCI_USBCAN2A, 0, 0, byref(vci_can_obj), 1, 0)
-            if ret > 0:
-                pass
-                # print(datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3], list(vci_can_obj.Data))
-                # print(time.perf_counter(), ret)
-                # print(vci_can_obj.DataLen, vci_can_obj.ID)
-                # print(list(vci_can_obj.Data))
+    def get_current_can(self):
+        my_current_can = self.canSelectcomboBox.currentText()
+
+        if self.thread_list:
+            for thr in self.thread_list:
+                thr.terminate()
+                thr.wait(1)
+            self.thread_list = []
+        if my_current_can == "CAN1":
+            self.can_num = 0
+            # ax, fig = self.draw_targets()
+
+            self.Can1Variable, self.Can2Variable, self.ta1, self.ta2 = self.start_can(self.can_num)
+            gv.set_variable("Can1Variable", self.Can1Variable)
+            gv.set_variable("Can2Variable", self.Can2Variable)
+            gv.set_variable('ta1', self.ta1)
+            gv.set_variable('ta2', self.ta2)
+            self.thread_list.append(self.ta1)
+            # # self.cantext.draw.connect(self.refresh_targets)
+            # self.refresh = Refresh(ax, fig)
+            # self.refresh.start()
+        if my_current_can == "CAN2":
+            self.can_num = 1
+            # ax, fig = self.draw_targets()
+
+            self.Can1Variable, self.Can2Variable, self.ta1, self.ta2 = self.start_can(self.can_num)
+            gv.set_variable("Can1Variable", self.Can1Variable)
+            gv.set_variable("Can2Variable", self.Can2Variable)
+            gv.set_variable('ta1', self.ta1)
+            gv.set_variable('ta2', self.ta2)
+
+            # # self.cantext.draw.connect(self.refresh_targets)
+            # self.refresh = Refresh(ax, fig)
+            # self.refresh.start()
+            self.thread_list.append(self.ta2)
 
 
-        # 关闭
-        canDLL.VCI_CloseDevice(VCI_USBCAN2A, 0)
 
-    def initUI(self):
-        #安装类型
-        self.groupCanType = QButtonGroup(self)
-        self.groupCanType.addButton(self.RFRRradioButton, 0)
-        self.groupCanType.addButton(self.RFradioButton, 1)
-        self.groupCanType.addButton(self.RRradioButton, 2)
-        self.groupCanType.addButton(self.LFLRradioButton, 3)
-        self.groupCanType.addButton(self.LFradioButton, 4)
-        self.groupCanType.addButton(self.LRradioButton, 5)
-        #CAN1
-        self.groupCan1 = QButtonGroup(self)
-        self.groupCan1.addButton(self.Can1RFradioButton, 6)
-        self.groupCan1.addButton(self.Can1LRradioButton, 7)
-        self.groupCan1.addButton(self.Can1NoneradioButton, 8)
-        #CAN2
-        self.groupCan2 = QButtonGroup(self)
-        self.groupCan2.addButton(self.Can2LFradioButton, 9)
-        self.groupCan2.addButton(self.Can2RRradioButton, 10)
-        self.groupCan2.addButton(self.Can2NoneradioButton, 11)
+    def start_can(self, can_num):
+        Can1Variable = definevariable()
+        Can2Variable = definevariable()
 
-        self.groupCanTypeInfo = ''
-        self.groupCan1Info = ''
-        self.groupCan2Info = ''
+        ta1 = CanThrerad(0, Can1Variable)
+        ta2 = CanThrerad(1, Can2Variable)
+        if can_num == 0:
+            ta1.text.connect(self.printcan)
+            ta1.dongtai_frame.connect(self.dongtai_ui)
+            ta1.start()
+        if can_num == 1:
+            ta2.text.connect(self.printcan)
+            ta2.dongtai_frame.connect(self.dongtai_ui)
+            ta2.start()
+        return Can1Variable, Can2Variable, ta1, ta2
 
-        self.groupCanType.buttonClicked.connect(self.radiobutton_clicked)
-        self.groupCan1.buttonClicked.connect(self.radiobutton_clicked)
-        self.groupCan2.buttonClicked.connect(self.radiobutton_clicked)
-
-        # self.print_can = Thread(target=self.printcan)
-        # self.print_can.setDaemon(True)
-        # self.print_can.start()
-        ax, fig = self.draw_targets()
-        self.cantext = CanThrerad()
-        self.cantext.text.connect(self.printcan)
-        # # self.cantext.draw.connect(self.refresh_targets)
-        self.cantext.start()
-        self.refresh = Refresh(ax, fig)
-        self.refresh.start()
-
-
-        # nTimer = Timer(0.001, self.refresh_targets)
-        # nTimer.start()
-
-        # self.ax.scatter(targets[0], targets[1], s=5.0)
     def draw_targets(self):
 
         # rho = np.arange(0, 2.5, 0.02)  # 极径，0--2.5,间隔0.02
@@ -625,6 +658,7 @@ class MyApp(Ui_biaoding,QMainWindow):
 
         self.widgetHist.figure.clear()
         self.ax = self.widgetHist.figure.add_subplot(1, 1, 1, polar=True)
+
         # self.ax.set_thetagrids(np.arange(-60, 61, 10.0))
         # self.ax.set_theta_zero_location('N')
         # self.ax.set_theta_direction(1)
@@ -640,80 +674,28 @@ class MyApp(Ui_biaoding,QMainWindow):
         # self.ax.scatter([5.497, 0, 0.785], [50, 70, 50], s=5.0)
         return self.ax, self.widgetHist.figure
 
-
-
-
-
-
     def printcan(self, can_list):
-        time_now = datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]
-        can_frame = ' '.join([hex(x)[2:].upper().zfill(2) for x in can_list[1]])
-        self.textBrowser_cantext.append(f'{time_now}  {hex(can_list[0]).upper()}  {can_frame}')
+        for frame in can_list:
+            self.textBrowser_cantext.append(f'{frame[0]}  {frame[1]}  {frame[2]} {frame[3]}')
         # self.textBrowser_cantext.moveCursor(self.textBrowser_cantext.textCursor().End)
         # self.textBrowser_cantext.append(f"{hex(canobject[0])}, {canobject[1]}")
         # print(hex(canobject[0]), canobject[1])
 
 
-    def radiobutton_clicked(self):
-        sender = self.sender()
-        if sender == self.groupCanType:
-            if self.groupCanType.checkedId() == 0:
-                self.groupCanTypeInfo = 'RFRR'
-            elif self.groupCanType.checkedId() == 1:
-                self.groupCanTypeInfo = 'RF'
-            elif self.groupCanType.checkedId() == 2:
-                self.groupCanTypeInfo = 'RR'
-            elif self.groupCanType.checkedId() == 3:
-                self.groupCanTypeInfo = 'LFLR'
-            elif self.groupCanType.checkedId() == 4:
-                self.groupCanTypeInfo = 'LF'
-            elif self.groupCanType.checkedId() == 5:
-                self.groupCanTypeInfo = 'LR'
-            else:
-                self.groupCanTypeInfo = ''
-        elif sender == self.groupCan1:
-            if self.groupCan1.checkedId() == 6:
-                self.groupCan1Info = '右前'
-            elif self.groupCan1.checkedId() == 7:
-                self.groupCan1Info = '左后'
-            elif self.groupCan1.checkedId() == 8:
-                self.groupCan1Info = '无'
-            else:
-                self.groupCan1Info = ''
-
-        elif sender == self.groupCan2:
-            if self.groupCan2.checkedId() == 9:
-                self.groupCan2Info = '左前'
-            elif self.groupCan2.checkedId() == 10:
-                self.groupCan2Info = '右后'
-            elif self.groupCan2.checkedId() == 11:
-                self.groupCan2Info = '无'
-            else:
-                self.groupCan2Info = ''
-
     def SysCalibrationFunction(self):
         self.SysCaliResult.setText(None)
         self.AngleResult.setText(None)
         self.SteplineEdit.setText(None)
-        self.lineEditEnd.setText(None)
         # 为1表示做了系统标定
         self.sysCaliOrNot = 1
-        if self.groupCanTypeInfo == '' or self.groupCan1Info == '' or self.groupCan2Info == '':
-            self.warningWindow = WarningWindow()
-            self.warningWindow.show_text("Can1、Can2雷达安装位置或雷达安装类型未选择！")
-            self.warningWindow.show()
-        elif self.groupCanTypeInfo != '' and self.groupCan1Info != '' and self.groupCan2Info != '':
-            # 这里就是获取值
-            # 批次
-            batchNum = self.PatchlineEdit.text()
-            # SN号
-            self.canSnNumber = self.SNlineEdit.text()
-            # 客户编码
-            clientCode = self.UserCodelineEdit.text()
-            self.confirmWindow = ConfirmWindow(self.doubleCanVariable, SysCaliResult=self.SysCaliResult)
-            self.confirmWindow.show_text(self.groupCan1Info, self.groupCan2Info, self.groupCanTypeInfo, self.canSnNumber,
-                                         self.groupCan1, self.groupCan2, batchNum, clientCode)
-            self.confirmWindow.show()
+
+        # 这里就是获取值
+        # 批次
+        # SN号
+        # 客户编码
+        self.confirmWindow = ConfirmWindow(self.doubleCanVariable, SysCaliResult=self.SysCaliResult, can = self.can_num)
+        self.confirmWindow.show_text()
+        self.confirmWindow.show()
 
     def AngleCaliFunction(self):
         # 做完系统标定再做角度标定，为1表示做了系统标定，为2表示做了角度标定
@@ -1164,22 +1146,67 @@ class MyApp(Ui_biaoding,QMainWindow):
         if ta2 != 0:
             stop_thread(ta2)
 
+    def update(self):
+        targetShowValueNew = self.targetShowValue.getAllValue()
+
+        TargetStatusMessageNew = self.CanVariable.getTargetStatusMessage()
+        if TargetStatusMessageNew != self.TargetStatusMessageOld:
+            self.TargetStatusMessageOld = TargetStatusMessageNew
+            statusdisplay.TargetStatusDisplay(TargetStatusMessageNew, self.statuslineEdit)
+            self.CanVariable.clearTargetStatusMessage()
+        if targetShowValueNew != self.targetShowValueOld:
+            self.targetShowValueOld = targetShowValueNew
+            targetShowValueOldList = list(self.targetShowValueOld)
+            distLong = targetShowValueOldList[2]
+            distLat = targetShowValueOldList[3]
+            # print("distLong {}".format(distLong))
+            # print("distLat {}".format(distLat))
+            #显示旧值
+            if distLong != [] and distLat != []:
+                if self.firstTimeDisplay == 1:
+                    self.p.removeItem(self.clusterValue)
+                    self.clusterValue = pg.ScatterPlotItem(x=distLat, y=distLong, brush='ff0000', size=5)
+                    self.p.addItem(self.clusterValue)
+                else:
+                    self.clusterValue = pg.ScatterPlotItem(x=distLat, y=distLong, brush='ff0000', size=5)
+                    self.p.addItem(self.clusterValue)
+                    self.firstTimeDisplay = 1
+
+    def TargetStatusFunction(self):
+        # 做了系统标定或者角度标定
+        self.canSelectTargetStatus = self.canSelectcomboBox.currentText()
+        if self.canSelectTargetStatus == "CAN1":
+            canChannelSelect = 1
+            self.CanVariable = gv.get_variable("Can1Variable")
+        else:
+            canChannelSelect = 2
+            self.CanVariable = gv.get_variable("Can2Variable")
+            # 没有做系统标定和角度标定
+        if self.systemcalicheckBox.checkState() == Qt.Checked:
+            sysCaliTargetStatus = 1
+        elif self.systemcalicheckBox.checkState() == Qt.Unchecked:
+            sysCaliTargetStatus = 0
+        if self.anglecalicheckBox.checkState() == Qt.Checked:
+            angleCaliTargetStatus = 1
+        elif self.anglecalicheckBox.checkState() == Qt.Unchecked:
+            angleCaliTargetStatus = 0
+        targetstatus.TargetStatus(canChannelSelect, sysCaliTargetStatus, angleCaliTargetStatus, self.doubleCanVariable,
+                                  self.operationThreadVariables, self.targetShowValue)
+        #处理 Target Status 显示
+        gv.set_variable('status_flag', True)
+
+        if self.timer == 0:
+            self.timer = QtCore.QTimer()
+            # 定时调用的函数不需要加括号()
+            self.timer.timeout.connect(self.update)
+            # start()时间为ms
+            self.timer.start(5)
+
 if __name__ == "__main__":
     app = QApplication(argv)
     window = MyApp()
     window.show()
     exit(app.exec_())
-
-
-
-
-
-
-
-
-
-
-
 
 
 
