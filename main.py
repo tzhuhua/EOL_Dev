@@ -1,18 +1,13 @@
 #python3.8.0 64位（python 32位要用32位的DLL）
 #
-import threading
 from queue import Queue
 import datetime
 import  time
 import pyqtgraph as pg
-from pyqtgraph.Qt import QtCore
-import csv
 from threading import Timer
 import global_variable as gv
 gv._init()
 gv.set_variable('status_flag', False)
-from matplotlib.animation import FuncAnimation
-import random
 from calibration.definevariable import definevariable
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtCore import Qt
@@ -34,7 +29,6 @@ from confirm import Ui_Confirm
 from StatusShow import statusdisplay
 
 from calibration import snvalue
-from CanOperation import canoperation
 
 from calibration.definevariable import canvariable
 from calibration.caliresultshow import MainWindowThread
@@ -236,7 +230,7 @@ class Refresh(QThread):
 
 class CanThrerad(QThread):
     text = pyqtSignal(object)
-    dongtai_frame = pyqtSignal(object)
+    analyse_frame = pyqtSignal(object)
     # draw = pyqtSignal(list)
     def __init__(self, channel, CanVariable):
         super().__init__()
@@ -261,7 +255,7 @@ class CanThrerad(QThread):
                         ("Mode", c_ubyte)
                         ]
         fild = []
-        for i in range(100):
+        for i in range(2000):
             temp = [("ID" + str(1+i), c_uint),
                     ("TimeStamp" + str(1+i), c_uint),
                     ("TimeFlag" + str(1+i), c_ubyte),
@@ -279,7 +273,6 @@ class CanThrerad(QThread):
             _fields_ = fild
         canDLL = gv.get_variable('dll')
         ret = canDLL.VCI_OpenDevice(VCI_USBCAN2A, 0, 0)
-        print(ret)
         if ret != STATUS_OK:
             print('调用 VCI_OpenDevice出错\r\n')
 
@@ -309,14 +302,13 @@ class CanThrerad(QThread):
         ubyte_3array = c_ubyte * 3
         a = ubyte_array(0, 0, 0, 0, 0, 0, 0, 0)
         b = ubyte_3array(0, 0, 0)
-        vci_can_obj = VCI_CAN_OBJ(*(0x0, 0, 0, 1, 0, 0, 8, a, b)*100)
         # ret = canDLL.VCI_Receive(VCI_USBCAN2A, 0, 0, byref(vci_can_obj), 1, 0)
         name = "can_log_"+time.strftime('%H%M%S')+".csv"
         gv.set_variable('can_log', name)
         while True:
-            dongtai_flag = False
-            vci_can_obj = VCI_CAN_OBJ(*(0x0, 0, 0, 1, 0, 0, 8, a, b) * 100)
-            ret = canDLL.VCI_Receive(VCI_USBCAN2, 0, self.channel, byref(vci_can_obj), 100, 0)    #每次接收一帧数据，这里设为1
+            analyse_flag = False
+            vci_can_obj = VCI_CAN_OBJ(*(0x0, 0, 0, 1, 0, 0, 8, a, b) * 2000)
+            ret = canDLL.VCI_Receive(VCI_USBCAN2, 0, self.channel, byref(vci_can_obj), 2000, 0)    #每次接收一帧数据，这里设为1
             # while ret <= 0:  # 如果没有接收到数据，一直循环查询接收。
             #     ret = canDLL.VCI_Receive(VCI_USBCAN2, 0, self.channel, byref(vci_can_obj), 100, 400)
             if ret > 0:
@@ -376,14 +368,14 @@ class CanThrerad(QThread):
                         if id == 0x70A:
                             gv.set_variable('target', self.cluster_list)
                             self.cluster_list = [[], []]
-                        if id == 0x7EA:
-                            dongtai_flag = True
+                        if id == 0x7EA or id == 0x7EE:
+                            analyse_flag = True
                     else:
                         break
 
                 self.text.emit(frame)
-                if dongtai_flag:
-                    self.dongtai_frame.emit(frame)
+                if analyse_flag:
+                    self.analyse_frame.emit(frame)
                 # with open (name, 'a', newline="") as can_log_file:
                 #     writer = csv.writer(can_log_file)
                 #     writer.writerow([time.strftime("%Y-%m-%d %H-%M-%S"), hex(id), data])
@@ -410,14 +402,12 @@ class MyApp(Ui_biaoding,QMainWindow):
         #Target Status
         self.statuspushButton.clicked.connect(self.TargetStatusFunction)
         #扩展模式
-        self.pushButton_kuozhan.clicked.connect(self.kuozhan_mode)
         self.comboBox_radar_type.currentTextChanged.connect(self.radar_type)
         self.pushButton_biaoding_history.clicked.connect(self.read_history)
         self.pushButton_start_biaoding.clicked.connect(self.run_biaoding)
-        self.pushButton_biaoding_value.clicked.connect(self.result_biaoding)
-
-
-
+        self.pushButton_read_biaoding_value.clicked.connect(self.read_value)
+        self.pushButton_flash.clicked.connect(self.read_flash)
+        self.pushButton_delete.clicked.connect(self.delete_flash_area)
         self.FilePath = 0
         self.cwd = getcwd()  # 获取当前程序文件位置
 
@@ -490,11 +480,15 @@ class MyApp(Ui_biaoding,QMainWindow):
         self.get_current_can()
 
         gv.set_variable('can_data_to_radar', "")
-        self.progress_ask_flag = True
+        self.progress_ask_flag = False
         self.current_radar_type = '角雷达'
         self.progressBar.setValue(0)
         self.label_history.setText("标定历史")
         self.label_biaoding_value.setText("标定结果")
+        self.read_current_value = 0
+        self.flash_flag = ""
+        self.bin_file_name = ""
+        self.flash_frame_nums = 0
     def closeEvent(self, event):
         """
         对MainWindow的函数closeEvent进行重构
@@ -517,27 +511,36 @@ class MyApp(Ui_biaoding,QMainWindow):
     """
     各种动态标定指令
     """
-    def check(self, moshi):
-        if moshi == "kuozhan":
-            if self.pushButton_kuozhan.text()== "进入扩展模式":
-                self.pushButton_kuozhan.setText("进入扩展模式失败！")
+    def change_flag(self, flag_type):
+        if flag_type == 'read_value':
+            self.read_current_value = 0
+        if flag_type == 'flash_delete':
+            self.flash_flag = ""
+            if "正在" in self.label_delete_state.text():
+                self.label_delete_state.setText("擦除数据失败！")
+        if flag_type == 'flash_read':
+            self.flash_flag = ""
+            if "正在读取" or "读取完成 "in self.label_read_state.text():
+                pass
+            else:
+                self.label_read_state.setText("读取数据失败！")
+    def read_value(self):
+        targetstatus.dongtai_biaoding(self.can_num, "value")
+        self.read_current_value = 1
+        reader_value = Timer(2, self.change_flag, ('read_value', ))
+        reader_value.start()
 
-    def kuozhan_mode(self):
-        targetstatus.dongtai_biaoding(self.can_num, "kuozhan")
-        t = Timer(4, self.check, ('kuozhan', ))
-        t.start()
     def read_history(self):
         targetstatus.dongtai_biaoding(self.can_num, "history")
+
     def run_biaoding(self):
-        targetstatus.dongtai_biaoding(self.can_num, "run")
+        targetstatus.dongtai_biaoding(self.can_num, "kuozhan")
         self.progress_ask_flag = True
-    def result_biaoding(self):
-        targetstatus.dongtai_biaoding(self.can_num, "result")
+
     def radar_type(self):
         self.current_radar_type = self.comboBox_radar_type.currentText()
         targetstatus.dongtai_biaoding(self.can_num, "radar")
-    def success_biaoding(self):
-        targetstatus.dongtai_biaoding(self.can_num, "success")
+
     def online_biaoding(self):
         targetstatus.dongtai_biaoding(self.can_num, "online")
 
@@ -545,7 +548,8 @@ class MyApp(Ui_biaoding,QMainWindow):
         self.online_biaoding()
         keep = Timer(0.5, self.keep_online)
         keep.start()
-        #keep.cancel()
+        if not self.progress_ask_flag:
+            keep.cancel()
 
     def ask_progress(self):
         targetstatus.dongtai_biaoding(self.can_num, "progress")
@@ -554,40 +558,108 @@ class MyApp(Ui_biaoding,QMainWindow):
         if not self.progress_ask_flag:
             pro.cancel()
 
-    def dongtai_ui(self, dongtai_frame):
-        for frame in dongtai_frame:
+    def ask_result(self):
+        targetstatus.dongtai_biaoding(self.can_num, "result")
+        reslut = Timer(0.2, self.ask_result)
+        reslut.start()
+        if not self.progress_ask_flag:
+            reslut.cancel()
+
+    def get_biaoding_value(self):
+        targetstatus.dongtai_biaoding(self.can_num, "value")
+        self.read_current_value = 2
+        biaoding_value = Timer(2, self.change_flag, ("read_value", ))
+        biaoding_value.start()
+
+    """
+    Flash指令
+    """
+    def read_flash(self):
+        self.label_read_state.setText("开始读取数据...")
+        self.flash_flag = "read_flash"
+        self.flash_frame_nums = 0
+        targetstatus.flash(self.can_num, "kuozhan")
+        flash_value = Timer(2, self.change_flag, ("flash_read",))
+        flash_value.start()
+        bin_folder = os.path.join(os.path.abspath('.'), 'bin文件')
+        if not os.path.exists(bin_folder):
+            os.mkdir(bin_folder)
+        self.bin_file_name = os.path.join(bin_folder, "Flash_" + datetime.datetime.now().strftime('%H%M%S') + ".bin")
+
+    def delete_flash_area(self):
+        self.flash_flag = "delete_flash"
+        self.label_delete_state.setText("正在擦除Flash区域数据！")
+        targetstatus.flash(self.can_num, "kuozhan")
+        flash_value = Timer(2, self.change_flag, ("flash_delete",))
+        flash_value.start()
+
+
+    def dongtai_ui(self, analyse_frame):
+        for frame in analyse_frame:
             if frame[2] == "0X7EA":
                 frame_data = frame[3].split(" ")
-                if frame_data[1] == '50':
-                    self.pushButton_kuozhan.setText('已经进入扩展模式')
-                    self.pushButton_kuozhan.setEnabled(False)
+                if self.progress_ask_flag and frame_data[1] == '50' and frame_data[2] == '03':
                     self.keep_online()
-                if frame_data[1] == '62':
+                    targetstatus.dongtai_biaoding(self.can_num, "run")
+                elif self.flash_flag == "read_flash" and frame_data[1] == '50' and frame_data[2] == '03':
+                    self.keep_online()
+                    targetstatus.flash(self.can_num, "request")
+                elif self.flash_flag == "delete_flash" and frame_data[1] == '50' and frame_data[2] == '03':
+                    self.keep_online()
+                    targetstatus.flash(self.can_num, "delete")
+                elif self.flash_flag == "delete_flash" and frame_data[0] == '04'and frame_data[1] == '71' and frame_data[2] == '01':
+                    self.label_delete_state.setText("擦除Flash区域数据成功！")
+                elif frame_data[1] == '62' and frame_data[2] == "03" and frame_data[3] == "08":
                     if frame_data[4] == "00":
                         self.label_history.setText("未做过动态标定")
                     if frame_data[4] == "01":
                         self.label_history.setText("已做过动态标定")
-                if frame_data[1] == "71" and frame_data[2] == "01":
+                elif frame_data[1] == "71" and frame_data[2] == "01":
                     self.ask_progress()
-                if frame_data[1] == "71" and frame_data[2] == "03":
+                    self.ask_result()
+
+                elif frame_data[1] == "71" and frame_data[2] == "03":
                     value = int(frame_data[5], 16)
                     if self.progress_ask_flag:
                         self.progressBar.setValue(value)
                     if value == 100:
                         self.progress_ask_flag = False
-                if frame_data[1] == "62" and frame_data[2] == "03" and frame_data[3] == "06":
-                    if frame_data[4] == "01":
-                        self.label_biaoding_value.setText('标定成功')
-                        self.success_biaoding()
-                    else:
-                        self.label_biaoding_value.setText('标定失败')
-                if frame_data[1] == "62" and frame_data[2] == "03" and frame_data[3] == "07":
+                        self.get_biaoding_value()
+
+                elif frame_data[1] == "62" and frame_data[2] == "03" and frame_data[3] == "06":
+                    if frame_data[4] == "04":
+                        self.label_biaoding_info.setText('正在标定（无效）')
+                    elif frame_data[4] == "03":
+                        self.label_biaoding_info.setText('正在标定（有效）')
+                    elif frame_data[4] == "02":
+                        self.label_biaoding_info.setText('正在标定')
+                    elif frame_data[4] == "01":
+                        self.label_biaoding_info.setText('标定成功')
+                    elif frame_data[4] == "00":
+                        self.label_biaoding_info.setText('标定失败')
+
+                elif frame_data[1] == "62" and frame_data[2] == "03" and frame_data[3] == "07":
                     if self.current_radar_type == '角雷达':
                         biaoding_value = int(frame_data[4] + frame_data[5], 16)*0.01
                     else:
                         biaoding_value = int(frame_data[4] + frame_data[5], 16) * 0.01-15
-                    self.label_biaoding_value.setText('标定结果:'+str(biaoding_value))
-
+                    if self.read_current_value == 1:
+                        self.label_current_value.setText('标定结果:'+str(biaoding_value))
+                    if self.read_current_value == 2:
+                        self.label_biaoding_value.setText('标定结果:' + str(biaoding_value))
+                else:
+                    pass
+            if frame[2] == "0X7EE":
+                self.flash_frame_nums = self.flash_frame_nums +1
+                frame_data = frame[3].split(" ")
+                frame_str = ''.join(frame_data)[:8]
+                frame_bytes = int(frame_str, 16).to_bytes(4,'big')
+                with open(self.bin_file_name, "ab+") as binfile:
+                    binfile.write(frame_bytes)
+                if self.flash_frame_nums >= 1153:
+                    self.label_read_state.setText("读取完成， bin文件已经生成！")
+                else:
+                    self.label_read_state.setText("正在读取Flash数据！")
     def get_current_can(self):
         my_current_can = self.canSelectcomboBox.currentText()
 
@@ -634,11 +706,11 @@ class MyApp(Ui_biaoding,QMainWindow):
         ta2 = CanThrerad(1, Can2Variable)
         if can_num == 0:
             ta1.text.connect(self.printcan)
-            ta1.dongtai_frame.connect(self.dongtai_ui)
+            ta1.analyse_frame.connect(self.dongtai_ui)
             ta1.start()
         if can_num == 1:
             ta2.text.connect(self.printcan)
-            ta2.dongtai_frame.connect(self.dongtai_ui)
+            ta2.analyse_frame.connect(self.dongtai_ui)
             ta2.start()
         return Can1Variable, Can2Variable, ta1, ta2
 
