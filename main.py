@@ -14,7 +14,7 @@ from PyQt5 import QtCore, QtWidgets
 from ctypes import *
 import ctypes
 import inspect
-from PyQt5.QtWidgets import QApplication, QWidget, QMainWindow, QButtonGroup, QFileDialog
+from PyQt5.QtWidgets import QApplication, QWidget, QMainWindow, QVBoxLayout, QFileDialog
 from sys import argv, exit
 from os import getcwd
 import os
@@ -211,6 +211,7 @@ class CanThrerad(QThread):
     def __init__(self, channel, CanVariable):
         super().__init__()
         self.cluster_list = [[],[],[]]
+        self.target_scatter = [[], []]
         self.channel = channel
         self.CanVariable = CanVariable
         self.ta1 = 0
@@ -319,6 +320,7 @@ class CanThrerad(QThread):
                             # ListValueMessage.append(StoreValue)
                             self.CanVariable.appendListValueMessage(StoreValue)
                         if id == 0x70B:
+                            self.CanVariable.setTargetStatusMessage(list(data))
                             bin_can_frame_list = [bin(x)[2:].zfill(8) for x in data]
                             bin_can_frame_str = ''.join(bin_can_frame_list)
                             ID = int(bin_can_frame_str[0:8], 2)
@@ -341,9 +343,14 @@ class CanThrerad(QThread):
                             r = math.sqrt(DistLong * DistLong + DistLat * DistLat)
                             self.cluster_list[0].extend([theta])
                             self.cluster_list[1].extend([r])
+                            self.target_scatter[0].extend([DistLong])
+                            self.target_scatter[1].extend([DistLat])
+
                         if id == 0x70A:
                             gv.set_variable('target', self.cluster_list)
+                            gv.set_variable('target_scatter', self.target_scatter)
                             self.cluster_list = [[], []]
+                            self.target_scatter = [[], []]
                         if id == 0x7EA or id == 0x7EE:
                             analyse_flag = True
                     else:
@@ -377,6 +384,7 @@ class MyApp(Ui_biaoding,QMainWindow):
         # self.AngleCaliStart.clicked.connect(self.AngleCaliFunction)
         #Target Status
         self.statuspushButton.clicked.connect(self.TargetStatusFunction)
+
         #扩展模式
         self.comboBox_radar_type.currentTextChanged.connect(self.radar_type)
         self.pushButton_biaoding_history.clicked.connect(self.read_history)
@@ -466,6 +474,21 @@ class MyApp(Ui_biaoding,QMainWindow):
         self.bin_file_name = ""
         self.flash_frame_nums = 0
         self.get_filename_path = ""
+
+        #点迹显示
+        self.first_time_flag = True
+        self.generate_image()
+    def generate_image(self):
+        verticalLayout = QVBoxLayout(self.graphicsView)
+        #k是black缩写，防止与blue重复
+        pg.setConfigOption('background', 0.8)
+        pg.setConfigOption('foreground', 'k')
+        win = pg.GraphicsLayoutWidget(self.graphicsView)
+        self.widget = verticalLayout.addWidget(win)
+        self.p = win.addPlot()
+        # alpha为网格的不透明度
+        self.p.showGrid(x=True, y=True)
+
     def closeEvent(self, event):
         """
         对MainWindow的函数closeEvent进行重构
@@ -691,37 +714,6 @@ class MyApp(Ui_biaoding,QMainWindow):
             ta2.start()
         return Can1Variable, Can2Variable, ta1, ta2
 
-    def draw_targets(self):
-
-        # rho = np.arange(0, 2.5, 0.02)  # 极径，0--2.5,间隔0.02
-        # theta = 2 * np.pi * rho  # 角度，单位：弧度
-        # self.ui.widgetPolar.figure.clear()
-        # ##ax1是matplotlib.projections.polar.PolarAxes类型的子图
-        # ax1 = self.ui.widgetPolar.figure.add_subplot(1, 1, 1, polar=True)
-        # ax1.plot(theta, rho, "r", linewidth=3)
-        # ax1.set_rmax(3)  # 极径最大值
-        # ax1.set_rticks([0, 1, 2])  # 极径刻度坐标
-        # ax1.set_rlabel_position(90)  # 极径刻度坐标，90°是正北
-        # ax1.grid(self.ui.chkBoxPolar_gridOn.isChecked())  # 是否显示网格
-
-
-        self.widgetHist.figure.clear()
-        self.ax = self.widgetHist.figure.add_subplot(1, 1, 1, polar=True)
-
-        # self.ax.set_thetagrids(np.arange(-60, 61, 10.0))
-        # self.ax.set_theta_zero_location('N')
-        # self.ax.set_theta_direction(1)
-        # self.ax.set_thetamin(-60)  # 设置极坐标图开始角度为0°
-        # self.ax.set_thetamax(60)  # 设置极坐标结束角度为180°
-        # self.ax.set_rgrids(np.arange(0, 61.0, 20.0))
-        # self.ax.set_rlim(0.0, 60.0)  # 标签范围为[0, 100)
-        # self.ax.set_yticklabels(['0', '20', '40', '60'])
-        # self.ax.grid(True, linestyle="-", color="k", linewidth=0.5, alpha=0.5)
-        # self.ax.set_axisbelow('False')  # 使散点覆盖在坐标系之上
-        # self.ax.set_rlabel_position(0)  # 标签显示在0°
-        # # self.ax.plot([5.497, 0, 0.785], [50, 70, 50])
-        # self.ax.scatter([5.497, 0, 0.785], [50, 70, 50], s=5.0)
-        return self.ax, self.widgetHist.figure
 
     def printcan(self, can_list):
         for frame in can_list:
@@ -738,10 +730,6 @@ class MyApp(Ui_biaoding,QMainWindow):
         # 为1表示做了系统标定
         self.sysCaliOrNot = 1
 
-        # 这里就是获取值
-        # 批次
-        # SN号
-        # 客户编码
 
         self.get_filename_path, ok = QFileDialog.getOpenFileName(self, "选取单个文件", QDir.currentPath(), "All Files (*);;Text Files (*.xls)")
         if not ok:
@@ -759,481 +747,20 @@ class MyApp(Ui_biaoding,QMainWindow):
         opMainWindow.daemon = False  # 当 daemon = False 时，线程不会随主线程退出而退出（默认时，就是 daemon = False）
         opMainWindow.start()  # 开启ta线程
 
-
-    # def AngleCaliFunction(self):
-    #     # 做完系统标定再做角度标定，为1表示做了系统标定，为2表示做了角度标定
-    #     if self.sysCaliOrNot == 1 or self.sysCaliOrNot == 2:
-    #         self.sysCaliOrNot = 2
-    #         Can1Variable, Can2Variable, ta1, ta2, excelSnNameVal = self.doubleCanVariable.getCanVariable()
-    #
-    #         # 得到距离值
-    #         if (self.AngleNum == 0):
-    #             workbook = open_workbook("C:/标定/配置文件/配置文件.xls")
-    #             worksheet = workbook.sheet_by_index(0)
-    #             # DistanceValue = worksheet.cell_value(0, 1)
-    #             #
-    #             # value = int(DistanceValue * 100)
-    #             # self.valueByte4 = value & 0xff
-    #             # self.valueByte5 = (value & 0xff00) >> 8
-    #
-    #             # 得到距离值
-    #             row_dis_data = worksheet.row_values(1)
-    #             self.row_data = row_dis_data[1:]
-    #             self.valueByte4All = [(int(value * 100) & 0xff) for value in self.row_data]
-    #             self.valueByte5All = [((int(value * 100) & 0xff00) >> 8) for value in self.row_data]
-    #
-    #             # 得到角度值
-    #             col_raw_data = worksheet.row_values(2)
-    #             self.col_data = col_raw_data[1:]
-    #             self.col_data_num = np.array(self.col_data).shape[0]
-    #             # 只有第一次才读取角度
-    #             self.AngleNum = 1
-    #
-    #         if self.AngleIndex == -1:
-    #             EditOutput = "当前角反距离为" + str(self.row_data[self.AngleIndex + 1]) + ",角度为" + str(
-    #                 int(self.col_data[self.AngleIndex + 1])) + "°，确定后请按'启动'"
-    #             self.SteplineEdit.setText(EditOutput)
-    #             self.AngleIndex = 0
-    #         else:
-    #             # CurrentAngle = self.col_data[self.AngleIndex]
-    #             # self.valueByte4 = self.valueByte4All[self.AngleIndex]
-    #             # self.valueByte5 = self.valueByte5All[self.AngleIndex]
-    #             # self.AngleIndex = self.AngleIndex + 1
-    #
-    #             if self.AngleIndex == 0:
-    #                 self.AngleIndex = 1
-    #                 # 只有第一次做角度标定才开启线程
-    #                 # 现在是把所有的距离角度信息都传递下去
-    #                 if self.groupCan1Info != '无' and self.groupCan2Info == '无':  # 判断左雷达SN输入是否为空
-    #                     # changeOperationStatus(3)表示做角度标定
-    #                     Can1Variable.changeOperationStatus(3)
-    #                     self.op = operationthread(CaliResult=self.AngleResult, CanVariable=Can1Variable,
-    #                                               AngleValue=self.col_data,
-    #                                               DisValue4=self.valueByte4All, DisValue5=self.valueByte5All, channel=0,
-    #                                               CalcAngleList=self.CalcAngleListLeft, ColDataNum=self.col_data_num,
-    #                                               CurAngleCaliCompleted=self.curAngleCaliCompleted)  # 实例化线程
-    #                     self.op.daemon = False  # 当 daemon = False 时，线程不会随主线程退出而退出（默认时，就是 daemon = False）
-    #                     self.op.start()  # 开启ta线程
-    #
-    #                 if self.groupCan1Info == '无' and self.groupCan2Info != '无':  # 判断右雷达SN输入是否为空
-    #                     Can2Variable.changeOperationStatus(3)
-    #                     self.col_data_reverse = [val * -1. for val in self.col_data]
-    #                     self.op = operationthread(CaliResult=self.AngleResult, CanVariable=Can2Variable,
-    #                                               AngleValue=self.col_data_reverse,
-    #                                               DisValue4=self.valueByte4All, DisValue5=self.valueByte5All, channel=1,
-    #                                               CalcAngleList=self.CalcAngleListRight, ColDataNum=self.col_data_num,
-    #                                               CurAngleCaliCompleted=self.curAngleCaliCompleted)  # 实例化线程
-    #                     self.op.daemon = False  # 当 daemon = False 时，线程不会随主线程退出而退出（默认时，就是 daemon = False）
-    #                     self.op.start()  # 开启ta线程
-    #
-    #                 if self.groupCan1Info != '无' and self.groupCan2Info != '无':  # 判断右雷达SN输入是否为空
-    #                     Can1Variable.changeOperationStatus(3)
-    #                     self.opL = operationthread(CaliResult=self.AngleResult, CanVariable=Can1Variable,
-    #                                                AngleValue=self.col_data,
-    #                                                DisValue4=self.valueByte4All, DisValue5=self.valueByte5All,
-    #                                                channel=0,
-    #                                                CalcAngleList=self.CalcAngleListLeft, ColDataNum=self.col_data_num,
-    #                                                CurAngleCaliCompleted=self.curAngleCaliCompleted)  # 实例化线程
-    #                     self.opL.daemon = False  # 当 daemon = False 时，线程不会随主线程退出而退出（默认时，就是 daemon = False）
-    #                     self.opL.start()  # 开启ta线程
-    #                     Can2Variable.changeOperationStatus(3)
-    #                     self.col_data_reverse = [val * -1. for val in self.col_data]
-    #                     self.opR = operationthread(CaliResult=self.AngleResult, CanVariable=Can2Variable,
-    #                                                AngleValue=self.col_data_reverse,
-    #                                                DisValue4=self.valueByte4All, DisValue5=self.valueByte5All,
-    #                                                channel=1,
-    #                                                CalcAngleList=self.CalcAngleListRight, ColDataNum=self.col_data_num,
-    #                                                CurAngleCaliCompleted=self.curAngleCaliCompleted)  # 实例化线程
-    #                     self.opR.daemon = False  # 当 daemon = False 时，线程不会随主线程退出而退出（默认时，就是 daemon = False）
-    #                     self.opR.start()  # 开启ta线程
-    #
-    #             self.curAngleCaliCompleted.changeAngleCaliCompletedNum(1)
-    #
-    #             while True:
-    #                 # 只有左雷达
-    #                 if self.groupCan1Info != '无' and self.groupCan2Info == '无':
-    #                     if Can1Variable.getOperationStatus() == 4:
-    #                         # print(self.CalcAngleListLeft)
-    #                         if self.AngleIndex == self.col_data_num:
-    #                             self.AngleNum = 0
-    #                             self.SteplineEdit.setText("所有角度都测试完成")
-    #                             # 为了下一个板子进行系统标定，角度标定测试
-    #                             self.AngleIndex = -1
-    #                             ExcelName = str(excelSnNameVal)
-    #                             varPassFailCan1 = writeanglecalibration(ExcelName, self.CalcAngleListLeft, self.col_data_num,
-    #                                                   self.groupCan1Info)
-    #                             if varPassFailCan1 == 0:
-    #                                 self.AngleResult.setText("Pass")
-    #                             else:
-    #                                 self.AngleResult.setText("方差错误，Fail")
-    #                             # 清空存储的角度值
-    #                             self.CalcAngleListLeft = []
-    #                         else:
-    #                             # 这里需要str()
-    #                             EditOutput = "请把角反放在" + str(self.row_data[self.AngleIndex]) + " m，" + str(
-    #                                 int(self.col_data[self.AngleIndex])) + "°位置，再按'启动'"
-    #                             # print(EditOutput)
-    #                             self.SteplineEdit.setText(EditOutput)
-    #                             Can1Variable.changeOperationStatus(3)
-    #                         break
-    #
-    #                 # 只有右雷达
-    #                 if self.groupCan1Info == '无' and self.groupCan2Info != '无':
-    #                     if Can2Variable.getOperationStatus() == 4:
-    #                         # print(self.CalcAngleListRight)
-    #                         if self.AngleIndex == self.col_data_num:
-    #                             self.AngleNum = 0
-    #                             self.SteplineEdit.setText("所有角度都测试完成")
-    #                             # 为了下一个板子进行系统标定，角度标定测试
-    #                             self.AngleIndex = -1
-    #                             ExcelName = str(excelSnNameVal)
-    #                             varPassFailCan2 = writeanglecalibration(ExcelName, self.CalcAngleListRight, self.col_data_num,
-    #                                                   self.groupCan2Info)
-    #                             if varPassFailCan2 == 0:
-    #                                 self.AngleResult.setText("Pass")
-    #                             else:
-    #                                 self.AngleResult.setText("方差错误，Fail")
-    #                             # 清空存储的角度值
-    #                             self.CalcAngleListRight = []
-    #                         else:
-    #                             # 这里需要str()
-    #                             EditOutput = "请把角反放在" + str(self.row_data[self.AngleIndex]) + " m，" + str(
-    #                                 int(self.col_data[self.AngleIndex])) + "°位置，再按'启动'"
-    #                             # print(EditOutput)
-    #                             self.SteplineEdit.setText(EditOutput)
-    #                             Can2Variable.changeOperationStatus(3)
-    #                         break
-    #
-    #                 # 双雷达
-    #                 if self.groupCan1Info != '无' and self.groupCan2Info != '无':
-    #                     if Can1Variable.getOperationStatus() == 4 and Can2Variable.getOperationStatus() == 4:
-    #                         # print(self.CalcAngleListLeft)
-    #                         # print(self.CalcAngleListRight)
-    #                         if self.AngleIndex == self.col_data_num:
-    #                             self.AngleNum = 0
-    #                             self.SteplineEdit.setText("所有角度都测试完成")
-    #                             # 为了下一个板子进行系统标定，角度标定测试
-    #                             self.AngleIndex = -1
-    #                             ExcelName = str(excelSnNameVal)
-    #                             varPassFailCan1 = writeanglecalibration(ExcelName, self.CalcAngleListLeft, self.col_data_num,
-    #                                                   self.groupCan1Info)
-    #                             ExcelName = str(excelSnNameVal)
-    #                             varPassFailCan2 = writeanglecalibration(ExcelName, self.CalcAngleListRight, self.col_data_num,
-    #                                                   self.groupCan2Info)
-    #                             if varPassFailCan1 == 0 and varPassFailCan2 == 0:
-    #                                 self.AngleResult.setText("Pass")
-    #                             else:
-    #                                 self.AngleResult.setText("方差错误，Fail")
-    #                             self.angleCalibrationPress.changeAngleCaliPress(0)
-    #                             # 清空存储的角度值
-    #                             self.CalcAngleListLeft = []
-    #                             self.CalcAngleListRight = []
-    #                         else:
-    #                             # 这里需要str()
-    #                             EditOutput = "请把角反放在" + str(self.row_data[self.AngleIndex]) + " m，" + str(
-    #                                 int(self.col_data[self.AngleIndex])) + "°位置，再按'启动'"
-    #                             # print(EditOutput)
-    #                             self.SteplineEdit.setText(EditOutput)
-    #                             Can1Variable.changeOperationStatus(3)
-    #                             Can2Variable.changeOperationStatus(3)
-    #                         break
-    #             self.AngleIndex = self.AngleIndex + 1
-    #     else:
-    #         # 只做角度标定
-    #         self.sysCaliOrNot = 3
-    #         anglePressNum = self.angleCalibrationPress.getAngleCaliPress()
-    #         if (self.groupCanTypeInfo == '' or self.groupCan1Info == '' or self.groupCan2Info == '') and anglePressNum == 0:
-    #             self.warningWindow = WarningWindow()
-    #             self.warningWindow.show_text("Can1、Can2雷达安装位置或雷达安装类型未选择！")
-    #             self.warningWindow.show()
-    #         elif (self.groupCanTypeInfo != '' and self.groupCan1Info != '' and self.groupCan2Info != '') and anglePressNum == 0:
-    #             # 这里就是获取值
-    #             # 批次
-    #             batchNum = self.PatchlineEdit.text()
-    #             # SN号
-    #             self.canSnNumber = self.SNlineEdit.text()
-    #             # 客户编码
-    #             clientCode = self.UserCodelineEdit.text()
-    #             self.confirmWindow = ConfirmWindow(self.doubleCanVariable, AngleResult=self.AngleResult, SteplineEdit=self.SteplineEdit,
-    #                                                angleCalibrationPress=self.angleCalibrationPress)
-    #             self.confirmWindow.show_text(self.groupCan1Info, self.groupCan2Info, self.groupCanTypeInfo,
-    #                                          self.canSnNumber, self.groupCan1, self.groupCan2, batchNum, clientCode)
-    #             self.confirmWindow.show()
-    #         elif anglePressNum == 1:
-    #             Can1Variable, Can2Variable, ta1, ta2, excelSnNameVal = self.doubleCanVariable.getCanVariable()
-    #             if (self.AngleNum == 0):
-    #                 workbook = open_workbook(self.get_filename_path)
-    #                 worksheet = workbook.sheet_by_index(0)
-    #
-    #                 # 得到距离值
-    #                 row_dis_data = worksheet.row_values(1)
-    #                 self.row_data = row_dis_data[1:]
-    #                 self.valueByte4All = [(int(value * 100) & 0xff) for value in self.row_data]
-    #                 self.valueByte5All = [((int(value * 100) & 0xff00) >> 8) for value in self.row_data]
-    #
-    #                 # 得到角度值
-    #                 col_raw_data = worksheet.row_values(2)
-    #                 self.col_data = col_raw_data[1:]
-    #                 self.col_data_num = np.array(self.col_data).shape[0]
-    #                 # 只有第一次才读取角度
-    #                 self.AngleNum = 1
-    #
-    #             if self.AngleIndex == -1:
-    #                 EditOutput = "当前角反距离为" + str(self.row_data[self.AngleIndex + 1]) + ",角度为" + str(int(self.col_data[self.AngleIndex + 1])) + "°，确定后请按'启动'"
-    #                 self.SteplineEdit.setText(EditOutput)
-    #                 self.AngleIndex = 0
-    #             else:
-    #                 # CurrentAngle = self.col_data[self.AngleIndex]
-    #                 # self.valueByte4 = self.valueByte4All[self.AngleIndex]
-    #                 # self.valueByte5 = self.valueByte5All[self.AngleIndex]
-    #                 # self.AngleIndex = self.AngleIndex + 1
-    #
-    #                 if self.AngleIndex == 0:
-    #                     self.AngleIndex = 1
-    #                     # 只有第一次做角度标定才开启线程
-    #                     # 现在是把所有的距离角度信息都传递下去
-    #                     if self.groupCan1Info != '无' and self.groupCan2Info == '无':  # 判断左雷达SN输入是否为空
-    #                         # changeOperationStatus(3)表示做角度标定
-    #                         Can1Variable.changeOperationStatus(3)
-    #                         self.op = operationthread(CaliResult=self.AngleResult, CanVariable=Can1Variable, AngleValue=self.col_data,
-    #                                              DisValue4=self.valueByte4All, DisValue5=self.valueByte5All, channel=0,
-    #                                              CalcAngleList=self.CalcAngleListLeft, ColDataNum=self.col_data_num,
-    #                                              CurAngleCaliCompleted=self.curAngleCaliCompleted)  # 实例化线程
-    #                         self.op.daemon = False  # 当 daemon = False 时，线程不会随主线程退出而退出（默认时，就是 daemon = False）
-    #                         self.op.start()  # 开启ta线程
-    #
-    #                     if self.groupCan1Info == '无' and self.groupCan2Info != '无':  # 判断右雷达SN输入是否为空
-    #                         Can2Variable.changeOperationStatus(3)
-    #                         self.col_data_reverse = [val * -1. for val in self.col_data]
-    #                         self.op = operationthread(CaliResult=self.AngleResult, CanVariable=Can2Variable, AngleValue=self.col_data_reverse,
-    #                                              DisValue4=self.valueByte4All, DisValue5=self.valueByte5All, channel=1,
-    #                                              CalcAngleList=self.CalcAngleListRight, ColDataNum=self.col_data_num,
-    #                                              CurAngleCaliCompleted=self.curAngleCaliCompleted)  # 实例化线程
-    #                         self.op.daemon = False  # 当 daemon = False 时，线程不会随主线程退出而退出（默认时，就是 daemon = False）
-    #                         self.op.start()  # 开启ta线程
-    #
-    #                     if self.groupCan1Info != '无' and self.groupCan2Info != '无':  # 判断右雷达SN输入是否为空
-    #                         Can1Variable.changeOperationStatus(3)
-    #                         self.opL = operationthread(CaliResult=self.AngleResult, CanVariable=Can1Variable,
-    #                                               AngleValue=self.col_data,
-    #                                               DisValue4=self.valueByte4All, DisValue5=self.valueByte5All, channel=0,
-    #                                               CalcAngleList=self.CalcAngleListLeft, ColDataNum=self.col_data_num,
-    #                                               CurAngleCaliCompleted=self.curAngleCaliCompleted)  # 实例化线程
-    #                         self.opL.daemon = False  # 当 daemon = False 时，线程不会随主线程退出而退出（默认时，就是 daemon = False）
-    #                         self.opL.start()  # 开启ta线程
-    #                         Can2Variable.changeOperationStatus(3)
-    #                         self.col_data_reverse = [val * -1. for val in self.col_data]
-    #                         self.opR = operationthread(CaliResult=self.AngleResult, CanVariable=Can2Variable,
-    #                                               AngleValue=self.col_data_reverse,
-    #                                               DisValue4=self.valueByte4All, DisValue5=self.valueByte5All, channel=1,
-    #                                               CalcAngleList=self.CalcAngleListRight, ColDataNum=self.col_data_num,
-    #                                               CurAngleCaliCompleted=self.curAngleCaliCompleted)  # 实例化线程
-    #                         self.opR.daemon = False  # 当 daemon = False 时，线程不会随主线程退出而退出（默认时，就是 daemon = False）
-    #                         self.opR.start()  # 开启ta线程
-    #
-    #                 self.curAngleCaliCompleted.changeAngleCaliCompletedNum(1)
-    #
-    #                 while True:
-    #                     # 只有左雷达
-    #                     if self.groupCan1Info != '无' and self.groupCan2Info == '无':
-    #                         if Can1Variable.getOperationStatus() == 4:
-    #                             # print(self.CalcAngleListLeft)
-    #                             if self.AngleIndex == self.col_data_num:
-    #                                 self.AngleNum = 0
-    #                                 self.SteplineEdit.setText("所有角度都测试完成")
-    #                                 # 为了下一个板子进行系统标定，角度标定测试
-    #                                 self.AngleIndex = -1
-    #                                 ExcelName = str(excelSnNameVal)
-    #                                 varPassFailCan1 = writeanglecalibration(ExcelName, self.CalcAngleListLeft, self.col_data_num,
-    #                                                       self.groupCan1Info)
-    #                                 if varPassFailCan1 == 0:
-    #                                     self.AngleResult.setText("Pass")
-    #                                 else:
-    #                                     self.AngleResult.setText("方差错误，Fail")
-    #                                 self.angleCalibrationPress.changeAngleCaliPress(0)
-    #                                 # 清空存储的角度值
-    #                                 self.CalcAngleListLeft = []
-    #                             else:
-    #                                 # 这里需要str()
-    #                                 EditOutput = "请把角反放在" + str(self.row_data[self.AngleIndex]) + " m，" + str(
-    #                                     int(self.col_data[self.AngleIndex])) + "°位置，再按'启动'"
-    #                                 # print(EditOutput)
-    #                                 self.SteplineEdit.setText(EditOutput)
-    #                                 Can1Variable.changeOperationStatus(3)
-    #                             break
-    #
-    #                     # 只有右雷达
-    #                     if self.groupCan1Info == '无' and self.groupCan2Info != '无':
-    #                         if Can2Variable.getOperationStatus() == 4:
-    #                             # print(self.CalcAngleListRight)
-    #                             if self.AngleIndex == self.col_data_num:
-    #                                 self.AngleNum = 0
-    #                                 self.SteplineEdit.setText("所有角度都测试完成")
-    #                                 # 为了下一个板子进行系统标定，角度标定测试
-    #                                 self.AngleIndex = -1
-    #                                 ExcelName = str(excelSnNameVal)
-    #                                 varPassFailCan2 = writeanglecalibration(ExcelName, self.CalcAngleListRight, self.col_data_num,
-    #                                                       self.groupCan2Info)
-    #                                 if varPassFailCan2 == 0:
-    #                                     self.AngleResult.setText("Pass")
-    #                                 else:
-    #                                     self.AngleResult.setText("方差错误，Fail")
-    #                                 self.angleCalibrationPress.changeAngleCaliPress(0)
-    #                                 # 清空存储的角度值
-    #                                 self.CalcAngleListRight = []
-    #                             else:
-    #                                 # 这里需要str()
-    #                                 EditOutput = "请把角反放在" + str(self.row_data[self.AngleIndex]) + " m，" + str(
-    #                                     int(self.col_data[self.AngleIndex])) + "°位置，再按'启动'"
-    #                                 # print(EditOutput)
-    #                                 self.SteplineEdit.setText(EditOutput)
-    #                                 Can2Variable.changeOperationStatus(3)
-    #                             break
-    #
-    #                     # 双雷达
-    #                     if self.groupCan1Info != '无' and self.groupCan2Info != '无':
-    #                         if Can1Variable.getOperationStatus() == 4 and Can2Variable.getOperationStatus() == 4:
-    #                             # print(self.CalcAngleListLeft)
-    #                             # print(self.CalcAngleListRight)
-    #                             if self.AngleIndex == self.col_data_num:
-    #                                 self.AngleNum = 0
-    #                                 self.SteplineEdit.setText("所有角度都测试完成")
-    #                                 # 为了下一个板子进行系统标定，角度标定测试
-    #                                 self.AngleIndex = -1
-    #                                 ExcelName = str(excelSnNameVal)
-    #                                 varPassFailCan1 = writeanglecalibration(ExcelName, self.CalcAngleListLeft, self.col_data_num,
-    #                                                       self.groupCan1Info)
-    #                                 ExcelName = str(excelSnNameVal)
-    #                                 varPassFailCan2 = writeanglecalibration(ExcelName, self.CalcAngleListRight, self.col_data_num,
-    #                                                       self.groupCan2Info)
-    #                                 if varPassFailCan1 == 0 and varPassFailCan2 == 0:
-    #                                     self.AngleResult.setText("Pass")
-    #                                 else:
-    #                                     self.AngleResult.setText("方差错误，Fail")
-    #                                 self.angleCalibrationPress.changeAngleCaliPress(0)
-    #                                 # 清空存储的角度值
-    #                                 self.CalcAngleListLeft = []
-    #                                 self.CalcAngleListRight = []
-    #                             else:
-    #                                 # 这里需要str()
-    #                                 EditOutput = "请把角反放在" + str(self.row_data[self.AngleIndex]) + " m，" + str(
-    #                                     int(self.col_data[self.AngleIndex])) + "°位置，再按'启动'"
-    #                                 # print(EditOutput)
-    #                                 self.SteplineEdit.setText(EditOutput)
-    #                                 Can1Variable.changeOperationStatus(3)
-    #                                 Can2Variable.changeOperationStatus(3)
-    #                             break
-    #                 self.AngleIndex = self.AngleIndex + 1
-
-    # def Type99Function(self):
-    #     # 为1/2表示做了系统/角度标定
-    #     if self.sysCaliOrNot == 1 or self.sysCaliOrNot == 2 or self.sysCaliOrNot == 3:
-    #         Can1Variable, Can2Variable, ta1, ta2, excelSnNameVal = self.doubleCanVariable.getCanVariable()
-    #         self.sysCaliOrNot = 0
-    #     elif self.sysCaliOrNot == 0:
-    #         Can1Variable, Can2Variable, ta1, ta2 = start_can_test(self.groupCan1Info, self.groupCan2Info)
-    #
-    #     self.lineEditEnd.setText("正在测试")
-    #     ubyte_array = c_ubyte * 8
-    #     a = ubyte_array(0xC1, 0x99, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0)
-    #     ubyte_3array = c_ubyte * 3
-    #     b = ubyte_3array(0, 0, 0)
-    #     vci_can_obj = VCI_CAN_OBJ(0x635, 0, 0, 1, 0, 0, 8, a, b)  # 单次发送
-    #
-    #     if self.groupCan1Info != '无':  # 判断左雷达SN输入是否为空
-    #         Can1Variable.changeOperationStatus(5)
-    #         ret = canDLL.VCI_Transmit(VCI_USBCAN2, 0, 0, byref(vci_can_obj), 1)
-    #         #if ret == STATUS_OK:
-    #         #    print('CAN1通道发送成功\r\n')
-    #         #if ret != STATUS_OK:
-    #         #    print('CAN1通道发送失败\r\n')
-    #
-    #         op = operationthread(CanVariable=Can1Variable)  # 实例化线程
-    #         op.daemon = False  # 当 daemon = False 时，线程不会随主线程退出而退出（默认时，就是 daemon = False）
-    #         op.start()  # 开启ta线程
-    #
-    #     if self.groupCan2Info != '无':  # 判断右雷达SN输入是否为空
-    #         Can2Variable.changeOperationStatus(5)
-    #         ret = canDLL.VCI_Transmit(VCI_USBCAN2, 0, 1, byref(vci_can_obj), 1)
-    #         #if ret == STATUS_OK:
-    #         #    print('CAN2通道发送成功\r\n')
-    #         #if ret != STATUS_OK:
-    #         #    print('CAN2通道发送失败\r\n')
-    #
-    #         op = operationthread(CanVariable=Can2Variable)  # 实例化线程
-    #         op.daemon = False  # 当 daemon = False 时，线程不会随主线程退出而退出（默认时，就是 daemon = False）
-    #         op.start()  # 开启ta线程
-    #
-    #     while (True):
-    #         # 只有左雷达
-    #         if self.groupCan1Info != '无' and self.groupCan2Info == '无':
-    #             if Can1Variable.getOperationStatus() == 6:
-    #                 self.lineEditEnd.setText("Pass")
-    #                 break
-    #             elif Can1Variable.getOperationStatus() == 7:
-    #                 self.lineEditEnd.setText("Fail")
-    #                 break
-    #             else:
-    #                 self.lineEditEnd.setText("Pass")
-    #                 break
-    #
-    #         # 只有右雷达
-    #         if self.groupCan1Info == '无' and self.groupCan2Info != '无':
-    #             if Can2Variable.getOperationStatus() == 6:
-    #                 self.lineEditEnd.setText("Pass")
-    #                 break
-    #             elif Can2Variable.getOperationStatus() == 7:
-    #                 self.lineEditEnd.setText("Fail")
-    #                 break
-    #             else:
-    #                 self.lineEditEnd.setText("Pass")
-    #                 break
-    #
-    #         # 双雷达
-    #         if self.groupCan1Info != '无' and self.groupCan2Info != '无':
-    #             if Can1Variable.getOperationStatus() == 6 and Can2Variable.getOperationStatus() == 6:
-    #                 self.lineEditEnd.setText("Pass")
-    #                 break
-    #             else:
-    #                 if Can1Variable.getOperationStatus() == 7 or Can2Variable.getOperationStatus() == 7:
-    #                     self.lineEditEnd.setText("Fail")
-    #                     break
-    #                 else:
-    #                     self.lineEditEnd.setText("Fail")
-    #                     break
-    #
-    #
-    #     canDLL.VCI_CloseDevice(VCI_USBCAN2, 0)
-    #     if ta1 != 0:
-    #         stop_thread(ta1)
-    #     if ta2 != 0:
-    #         stop_thread(ta2)
-
     def update(self):
-        targetShowValueNew = self.targetShowValue.getAllValue()
-
+        scatter = gv.get_variable("target_scatter")
         TargetStatusMessageNew = self.CanVariable.getTargetStatusMessage()
         if TargetStatusMessageNew != self.TargetStatusMessageOld:
             self.TargetStatusMessageOld = TargetStatusMessageNew
             statusdisplay.TargetStatusDisplay(TargetStatusMessageNew, self.statuslineEdit)
             self.CanVariable.clearTargetStatusMessage()
-        if targetShowValueNew != self.targetShowValueOld:
-            self.targetShowValueOld = targetShowValueNew
-            targetShowValueOldList = list(self.targetShowValueOld)
-            distLong = targetShowValueOldList[2]
-            distLat = targetShowValueOldList[3]
-            # print("distLong {}".format(distLong))
-            # print("distLat {}".format(distLat))
-            #显示旧值
-            if distLong != [] and distLat != []:
-                if self.firstTimeDisplay == 1:
-                    self.p.removeItem(self.clusterValue)
-                    self.clusterValue = pg.ScatterPlotItem(x=distLat, y=distLong, brush='ff0000', size=5)
-                    self.p.addItem(self.clusterValue)
-                else:
-                    self.clusterValue = pg.ScatterPlotItem(x=distLat, y=distLong, brush='ff0000', size=5)
-                    self.p.addItem(self.clusterValue)
-                    self.firstTimeDisplay = 1
+        if scatter[0] != []:
+            if not self.first_time_flag:
+                self.p.removeItem(self.clusterValue)
+            self.clusterValue = pg.ScatterPlotItem(x=scatter[1], y=scatter[0], brush='ff0000', size=5)
+            self.p.addItem(self.clusterValue)
+            self.first_time_flag = False
+
 
     def TargetStatusFunction(self):
         # 做了系统标定或者角度标定
