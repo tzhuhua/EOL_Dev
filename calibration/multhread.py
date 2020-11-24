@@ -93,7 +93,7 @@ class operationthread(threading.Thread):
         #系统标定
         if OperationStatus == 1:
             # 得到距离值
-            workbook = open_workbook("C:/标定/配置文件/配置文件.xls")
+            workbook = open_workbook(gv.get_variable("biaoding_wenjian"))
             worksheet = workbook.sheet_by_index(0)
             DistanceValue = worksheet.cell_value(0, 1)
 
@@ -115,15 +115,18 @@ class operationthread(threading.Thread):
             while True:
                 ListValueMessage = self.CanVariable.getListValueMessage()
                 timeEndVal = time.time()
-                if np.array(ListValueMessage).shape[0] > 1200:  # 这里接收的数据长度要注意，现在为190 187
+                if np.array(ListValueMessage).shape[0] > 190:  # 这里接收的数据长度要注意，现在为190 187
                     wb = CreateWorkbook()
                     # print(ListValueMessage)
-                    syscalibration(self.CaliResult, wb, self.CanVariable)
-                    # print(self.CanVariable.getListValueMessage())
-                    self.CanVariable.clearListValueMessage()
-                    CloseWorkbook(wb, self.ExcelName, self.groupCanInfo)  # 保存
+                    result = syscalibration(self.CaliResult, wb, self.CanVariable)
                     self.CanVariable.changeOperationStatus(2)
-                    gv.set_variable('save_can_text_flag', False)
+                    if result != "成功":
+                        self.CanVariable.changeAnalyseError(result)
+                    else:
+                        # print(self.CanVariable.getListValueMessage())
+                        self.CanVariable.clearListValueMessage()
+                        CloseWorkbook(wb, self.ExcelName, self.groupCanInfo)  # 保存
+                        gv.set_variable('save_can_text_flag', False)
                     break
                 # 大于60s就终止系统标定
                 if (timeEndVal - timeStartVal) > 60:

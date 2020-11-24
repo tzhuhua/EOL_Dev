@@ -18,7 +18,7 @@ class definevariable:
         self.clusterMessageValueResult = []
         #报文 70A 是否接收完成
         self.message70ACompleted = 0
-
+        self.analyseError = 0
     def changeOperationStatus(self, x):
         self.OperationStatus = x
 
@@ -39,6 +39,12 @@ class definevariable:
 
     def getTimeOutVal(self):
         return self.timeOutVal
+
+    def changeAnalyseError(self, x):
+        self.analyseError = x
+
+    def getAnalyseError(self):
+        return self.analyseError
 
     def setTargetStatusMessage(self, value):
         self.targetStatusMessage = value

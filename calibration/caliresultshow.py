@@ -33,9 +33,9 @@ class MainWindowThread(threading.Thread):
         self.ta2 = ta2
         self.can_num = can_num
     def run(self):
-        self.SysCaliResult.setText("正在测试")
+        self.SysCaliResult.setText("正在标定")
 
-        if self.can_num == 1:
+        if self.can_num == 0:
             while True:
                 #为2表示是系统标定完成
                 if self.Can1Variable.getOperationStatus() == 2 or self.Can1Variable.getOperationStatus() == 4:
@@ -44,15 +44,18 @@ class MainWindowThread(threading.Thread):
                     #     canoperation.can_close()
                     #     stop_thread(self.ta1)
                     if self.Can1Variable.getTimeOutVal() == 1:
-                        self.SysCaliResult.setText("超时失败")
+                        self.SysCaliResult.setText("超时失败！")
                         canoperation.can_close()
                         stop_thread(self.ta1)
+                    elif self.Can1Variable.getAnalyseError() != 0:
+                        self.SysCaliResult.setText(self.Can1Variable.getAnalyseError())
+                        self.Can1Variable.changeAnalyseError(0)
                     else:
-                        self.SysCaliResult.setText("完成")
+                        self.SysCaliResult.setText("标定成功！")
                     self.Can1Variable.changeOperationStatus(0)
                     self.Can1Variable.changeTimeOutVal(0)
                     break
-        if self.can_num == 2:
+        if self.can_num == 1:
             while True:
                 if self.Can2Variable.getOperationStatus() == 2 or self.Can2Variable.getOperationStatus() == 4:
                     # 当做完read操作，需要关闭所有线程

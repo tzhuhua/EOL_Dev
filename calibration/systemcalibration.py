@@ -58,7 +58,13 @@ def syscalibration(CaliResultSetText, wb, CanVariable):
             RawList.append(value)
         if value[0] == 0x634:
             PassFailList.append(value)
-
+    if not CompList or not AvgList or not PassFailList:
+        message = "标定失败！未收到ID为632，633或634的报文， 请检查标定的距离！"
+        return message
+    if PassFailList:
+        if PassFailList[0][3] == 1 and len(RawList) < 175:
+            message = "标定成功！但是上位机未能收到全部报文，无法生成结果文件！"
+            return message
     for value in CompList:
         if value[1] == 2:
             CompValue = (value[4] << 8) | value[3]
@@ -545,7 +551,7 @@ def syscalibration(CaliResultSetText, wb, CanVariable):
         datasheet.write(75, 1, "Pass")
         #CaliResultSetText.setText("Pass")
     datasheet.write(76, 1, PassFailList[0][3])
-
+    return "成功"
 
 
 
