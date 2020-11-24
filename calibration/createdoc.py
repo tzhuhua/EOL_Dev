@@ -7,7 +7,7 @@ def CreateWorkbook(): #这里要有括号
     return wbk
 
 def CloseWorkbook(wbk, ExcelName):
-    FileName = str(ExcelName) + '_' + time.strftime("(%H%M%S)")+ ".xls"
+    FileName = str(ExcelName)+".xls"
     ExcelPath = os.path.join(os.path.dirname(gv.get_variable("biaoding_wenjian")), FileName)
     #wbk.save(r'C:\Users\Lee\Desktop\SysCalibration.xlsx')  # 保存
     wbk.save(ExcelPath)  # 保存

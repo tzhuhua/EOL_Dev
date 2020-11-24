@@ -13,6 +13,6 @@ def create_excel_sn():
     my_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
     # 一共6位，不足补零
-    excelSnNameVal = '标定结果_' + my_time
+    excelSnNameVal = '系统标定结果_' + my_time
     return excelSnNameVal
 

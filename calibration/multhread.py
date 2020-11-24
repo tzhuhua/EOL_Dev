@@ -125,7 +125,7 @@ class operationthread(threading.Thread):
                     else:
                         # print(self.CanVariable.getListValueMessage())
                         self.CanVariable.clearListValueMessage()
-                        CloseWorkbook(wb, self.ExcelName, self.groupCanInfo)  # 保存
+                        CloseWorkbook(wb, self.ExcelName)  # 保存
                         gv.set_variable('save_can_text_flag', False)
                     break
                 # 大于60s就终止系统标定
