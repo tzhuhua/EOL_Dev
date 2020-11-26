@@ -1,9 +1,13 @@
 #python3.8.0 64位（python 32位要用32位的DLL）
 #
+import warnings
+warnings.filterwarnings("ignore")
 from queue import Queue
 import datetime
-import  time
+import time
 import pyqtgraph as pg
+from pyqtgraph.Point import Point
+from pyqtgraph.Qt import QtGui
 from threading import Timer
 import global_variable as gv
 gv._init()
@@ -14,13 +18,14 @@ from PyQt5 import QtCore, QtWidgets
 from ctypes import *
 import ctypes
 import inspect
-from PyQt5.QtWidgets import QApplication, QWidget, QMainWindow, QVBoxLayout, QFileDialog
+from PyQt5.QtWidgets import QApplication, QWidget, QMainWindow, QVBoxLayout, QFileDialog, QTableWidgetItem
 from sys import argv, exit
 from os import getcwd
 import os
 from xlrd import open_workbook
 from calibration.multhread import operationthread
 import numpy as np
+np.set_printoptions(precision=2)
 from calibration.anglecalibration import writeanglecalibration
 from calibrationWindow import Ui_biaoding
 from warning import Ui_warning
@@ -210,8 +215,9 @@ class CanThrerad(QThread):
     # draw = pyqtSignal(list)
     def __init__(self, channel, CanVariable):
         super().__init__()
-        self.cluster_list = [[],[],[]]
-        self.target_scatter = [[], []]
+        # self.cluster_list = [[],[],[]]
+        self.target_scatter = []
+        self.current_all_scatter = []
         self.channel = channel
         self.CanVariable = CanVariable
         self.ta1 = 0
@@ -326,11 +332,11 @@ class CanThrerad(QThread):
                             ID = int(bin_can_frame_str[0:8], 2)
                             DistLong = int(bin_can_frame_str[8:18], 2) * 0.2 - 102
                             DistLat = int(bin_can_frame_str[18:28], 2) * 0.2 - 102
-                            # VrelLong = int(bin_can_frame_str[28:38], 2) * 0.25 - 128
-                            # VrelLat = int(bin_can_frame_str[38:47], 2) * 0.25 - 64
-                            # Status = (int(bin_can_frame_str[50:53], 2))
-                            # PossibilitofExist = (int(bin_can_frame_str[53:56], 2))
-                            # RCS = int(bin_can_frame_str[56:64], 2) * 0.5 - 64
+                            VrelLong = int(bin_can_frame_str[28:38], 2) * 0.25 - 128
+                            VrelLat = int(bin_can_frame_str[38:47], 2) * 0.25 - 64
+                            Status = (int(bin_can_frame_str[50:53], 2))
+                            PossibilitofExist = (int(bin_can_frame_str[53:56], 2))
+                            RCS = int(bin_can_frame_str[56:64], 2) * 0.5 - 64
                             # # print(ID)
                             # # print(DistLong)
                             # # print(DistLat)
@@ -341,16 +347,18 @@ class CanThrerad(QThread):
                             # # print(RCS)
                             theta = math.atan2(DistLat, DistLong)
                             r = math.sqrt(DistLong * DistLong + DistLat * DistLat)
-                            self.cluster_list[0].extend([theta])
-                            self.cluster_list[1].extend([r])
-                            self.target_scatter[0].extend([DistLong])
-                            self.target_scatter[1].extend([DistLat])
-
+                            # self.cluster_list[0].extend([theta])
+                            # self.cluster_list[1].extend([r])
+                            self.target_scatter.extend([[DistLat, DistLong]])
+                            self.current_all_scatter.extend([[ID, DistLong, DistLat, VrelLong, VrelLat, Status, PossibilitofExist, RCS]])
                         if id == 0x70A:
-                            gv.set_variable('target', self.cluster_list)
-                            gv.set_variable('target_scatter', self.target_scatter)
-                            self.cluster_list = [[], []]
-                            self.target_scatter = [[], []]
+                            if not gv.get_variable("stop_scatter"):
+                                # gv.set_variable('target', self.cluster_list)
+                                gv.set_variable('target_scatter', np.array(self.target_scatter))
+                                gv.set_variable('target_scatter_info',  np.array(self.current_all_scatter))
+                            # self.cluster_list = [[], []]
+                            self.target_scatter.clear()
+                            self.current_all_scatter.clear()
                         if id == 0x7EA or id == 0x7EE:
                             analyse_flag = True
                     else:
@@ -365,6 +373,112 @@ class CanThrerad(QThread):
 
                 # dd = canDLL.VCI_ClearBuffer(VCI_USBCAN2A, 0, 1)
 
+class Graph(pg.GraphItem):
+    click_trigger = pyqtSignal(object)
+    def __init__(self):
+        self.dragPoint = None
+        self.dragOffset = None
+        self.textItems = []
+        pg.GraphItem.__init__(self)
+        self.scatter.sigClicked.connect(self.clicked)
+    def setData(self, **kwds):
+        self.text = kwds.pop('text', [])
+        self.data = kwds
+        if 'pos' in self.data:
+            npts = self.data['pos'].shape[0]
+            self.data['data'] = np.empty(npts, dtype=[('index', int)])
+            self.data['data']['index'] = np.arange(npts)
+        self.setTexts(self.text)
+        self.updateGraph()
+
+    def setTexts(self, text):
+        for i in self.textItems:
+            i.scene().removeItem(i)
+        self.textItems = []
+        for t in text:
+            item = pg.TextItem(t)
+            self.textItems.append(item)
+            item.setParentItem(self)
+
+    def updateGraph(self):
+        pg.GraphItem.setData(self, **self.data)
+        for i, item in enumerate(self.textItems):
+            item.setPos(*self.data['pos'][i])
+
+    def mouseDragEvent(self, ev):
+        if ev.button() != QtCore.Qt.LeftButton:
+            ev.ignore()
+            return
+
+        if ev.isStart():
+            # We are already one step into the drag.
+            # Find the point(s) at the mouse cursor when the button was first
+            # pressed:
+            pos = ev.buttonDownPos()
+            pts = self.scatter.pointsAt(pos)
+            if len(pts) == 0:
+                ev.ignore()
+                return
+            self.dragPoint = pts[0]
+            ind = pts[0].data()[0]
+            self.dragOffset = self.data['pos'][ind] - pos
+        elif ev.isFinish():
+            self.dragPoint = None
+            return
+        else:
+            if self.dragPoint is None:
+                ev.ignore()
+                return
+
+        ind = self.dragPoint.data()[0]
+        self.data['pos'][ind] = ev.pos() + self.dragOffset
+        self.updateGraph()
+        ev.accept()
+
+    def clicked(self, pts):
+        current_index = pts.ptsClicked[0].index()
+        print(pts.ptsClicked[0].pos())
+        print(gv.get_variable('target_scatter_info')[current_index])
+        self.click_trigger.emit(gv.get_variable('target_scatter_info')[current_index])
+
+class MyGraphView(pg.GraphicsLayoutWidget):
+    def __init__(self, parent=None):
+        pg.GraphicsLayoutWidget.__init__(self, parent)
+        self.my_current_pts = None
+
+    def mouseMoveEvent(self, ev):
+        gv.set_variable('stop_scatter', True)
+        if self.lastMousePos is None:
+            self.lastMousePos = Point(ev.pos())
+        delta = Point(ev.pos() - QtCore.QPoint(*self.lastMousePos))
+        self.lastMousePos = Point(ev.pos())
+
+        QtGui.QGraphicsView.mouseMoveEvent(self, ev)
+        if not self.mouseEnabled:
+            return
+        self.sigSceneMouseMoved.emit(self.mapToScene(ev.pos()))
+
+        if self.clickAccepted:  ## Ignore event if an item in the scene has already claimed it.
+            return
+
+        if ev.buttons() == QtCore.Qt.RightButton:
+            delta = Point(np.clip(delta[0], -50, 50), np.clip(-delta[1], -50, 50))
+            scale = 1.01 ** delta
+            self.scale(scale[0], scale[1], center=self.mapToScene(self.mousePressPos))
+            self.sigDeviceRangeChanged.emit(self, self.range)
+
+        elif ev.buttons() in [QtCore.Qt.MidButton, QtCore.Qt.LeftButton]:  ## Allow panning by left or mid button.
+            px = self.pixelSize()
+            tr = -delta * px
+
+            self.translate(tr[0], tr[1])
+            self.sigDeviceRangeChanged.emit(self, self.range)
+    def leaveEvent(self, ev):
+        print("rr")
+        gv.set_variable('stop_scatter', False)
+
+        return
+
 class MyApp(Ui_biaoding,QMainWindow):
     def __init__(self):
         super(MyApp, self).__init__()
@@ -372,7 +486,7 @@ class MyApp(Ui_biaoding,QMainWindow):
         self.ax = None
         self.queue_targets= Queue()
         gv.set_variable('target', [])
-        self.cluster_list = [[], [], []]
+        # self.cluster_list = [[], [], []]
 
         #通道选择
         self.channel1 = 0
@@ -476,18 +590,40 @@ class MyApp(Ui_biaoding,QMainWindow):
         self.get_filename_path = ""
 
         #点迹显示
+        gv.set_variable("target_scatter", [])
+        gv.set_variable("stop_scatter", False)
+
         self.first_time_flag = True
         self.generate_image()
+        self.my_scatter = Graph()
+        self.my_scatter.click_trigger.connect(self.write_2_table_content)
+        self.plot.addItem(self.my_scatter)
+        self.update_scatter()
+        self.scatter_timer = QtCore.QTimer()
+        self.scatter_timer.stop()
+        self.scatter_timer.setInterval(5)
+        self.scatter_timer.timeout.connect(self.update_scatter)
+        self.scatter_timer.start()
+        gv.set_variable('scatter_timer', self.scatter_timer)
+
     def generate_image(self):
         verticalLayout = QVBoxLayout(self.graphicsView)
         #k是black缩写，防止与blue重复
         pg.setConfigOption('background', 0.8)
         pg.setConfigOption('foreground', 'k')
-        win = pg.GraphicsLayoutWidget(self.graphicsView)
+        win = MyGraphView(self.graphicsView)
         self.widget = verticalLayout.addWidget(win)
-        self.p = win.addPlot()
+        self.plot = win.addPlot()
         # alpha为网格的不透明度
-        self.p.showGrid(x=True, y=True)
+        self.plot.showGrid(x=True, y=True)
+
+    def write_2_table_content(self, content):
+        for index, item in enumerate(content):
+            item = QTableWidgetItem(str(round(float(item), 2)), 1000)
+            item.setTextAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+            self.tableWidget.setItem(0, index, item)
+        print("write_2_table_content")
+
 
     def closeEvent(self, event):
         """
@@ -747,19 +883,23 @@ class MyApp(Ui_biaoding,QMainWindow):
         opMainWindow.daemon = False  # 当 daemon = False 时，线程不会随主线程退出而退出（默认时，就是 daemon = False）
         opMainWindow.start()  # 开启ta线程
 
-    def update(self):
+    def update_scatter(self):
         scatter = gv.get_variable("target_scatter")
+        if len(scatter) > 0 and not gv.get_variable("stop_scatter"):
+            self.my_scatter.setData(pos=scatter,  size=5,  brush='ff0000')
+    def update(self):
+
         TargetStatusMessageNew = self.CanVariable.getTargetStatusMessage()
         if TargetStatusMessageNew != self.TargetStatusMessageOld:
             self.TargetStatusMessageOld = TargetStatusMessageNew
             statusdisplay.TargetStatusDisplay(TargetStatusMessageNew, self.statuslineEdit)
             self.CanVariable.clearTargetStatusMessage()
-        if scatter[0] != []:
-            if not self.first_time_flag:
-                self.p.removeItem(self.clusterValue)
-            self.clusterValue = pg.ScatterPlotItem(x=scatter[1], y=scatter[0], brush='ff0000', size=5)
-            self.p.addItem(self.clusterValue)
-            self.first_time_flag = False
+        # if scatter[0] != []:
+        #     if not self.first_time_flag:
+        #         self.plot.removeItem(self.clusterValue)
+        #     self.clusterValue = pg.ScatterPlotItem(x=scatter[1], y=scatter[0], brush='ff0000', size=5)
+        #     self.plot.addItem(self.clusterValue)
+        #     self.first_time_flag = False
 
 
     def TargetStatusFunction(self):
