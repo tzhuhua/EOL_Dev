@@ -2,7 +2,6 @@
 OperationStatus 为1：系统标定 2：角度标定 3：RCS 4：包络标定
 '''
 
-import numpy as np
 
 class definevariable:
     def __init__(self):

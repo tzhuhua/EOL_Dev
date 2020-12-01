@@ -73,7 +73,7 @@
       <property name="frameShadow">
        <enum>QFrame::Raised</enum>
       </property>
-      <layout class="QHBoxLayout" name="horizontalLayout_8" stretch="7,8">
+      <layout class="QHBoxLayout" name="horizontalLayout_8">
        <item>
         <widget class="QTabWidget" name="tabWidget">
          <property name="currentIndex">
@@ -128,36 +128,6 @@
              </layout>
             </widget>
            </item>
-           <item row="1" column="0">
-            <widget class="QGroupBox" name="groupBox">
-             <property name="title">
-              <string>系统标定：</string>
-             </property>
-             <layout class="QGridLayout" name="gridLayout_4">
-              <item row="0" column="0">
-               <layout class="QHBoxLayout" name="horizontalLayout">
-                <item>
-                 <widget class="QLabel" name="SysCaliblabel">
-                  <property name="text">
-                   <string>系统标定：</string>
-                  </property>
-                 </widget>
-                </item>
-                <item>
-                 <widget class="QPushButton" name="SysCaliStart">
-                  <property name="text">
-                   <string>启动</string>
-                  </property>
-                 </widget>
-                </item>
-                <item>
-                 <widget class="QLineEdit" name="SysCaliResult"/>
-                </item>
-               </layout>
-              </item>
-             </layout>
-            </widget>
-           </item>
            <item row="2" column="0">
             <widget class="QGroupBox" name="groupBox_5">
              <property name="title">
@@ -196,6 +166,36 @@
                 </item>
                 <item>
                  <widget class="QLineEdit" name="SteplineEdit"/>
+                </item>
+               </layout>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item row="1" column="0">
+            <widget class="QGroupBox" name="groupBox">
+             <property name="title">
+              <string>系统标定：</string>
+             </property>
+             <layout class="QGridLayout" name="gridLayout_4">
+              <item row="0" column="0">
+               <layout class="QHBoxLayout" name="horizontalLayout">
+                <item>
+                 <widget class="QLabel" name="SysCaliblabel">
+                  <property name="text">
+                   <string>系统标定：</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="SysCaliStart">
+                  <property name="text">
+                   <string>启动</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLineEdit" name="SysCaliResult"/>
                 </item>
                </layout>
               </item>
@@ -566,132 +566,147 @@
         </widget>
        </item>
        <item>
-        <widget class="QWidget" name="widget" native="true">
-         <layout class="QGridLayout" name="gridLayout_13">
-          <item row="0" column="0">
-           <widget class="QGroupBox" name="groupBox_4">
-            <property name="title">
-             <string>CAN报文</string>
-            </property>
-            <layout class="QGridLayout" name="gridLayout_12">
-             <item row="0" column="0">
-              <widget class="QTextBrowser" name="textBrowser_cantext">
-               <property name="autoFormatting">
-                <set>QTextEdit::AutoNone</set>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </widget>
-          </item>
-          <item row="1" column="0">
-           <widget class="QGroupBox" name="groupBox_6">
-            <property name="title">
-             <string>点迹显示</string>
-            </property>
-            <layout class="QGridLayout" name="gridLayout_7" rowstretch="1,1,9,0" rowminimumheight="0,0,0,0">
-             <item row="1" column="0">
-              <widget class="QComboBox" name="comboBox_tatr">
-               <item>
-                <property name="text">
-                 <string>Target</string>
+        <widget class="QTabWidget" name="tabWidget_2">
+         <property name="currentIndex">
+          <number>0</number>
+         </property>
+         <widget class="QWidget" name="tab_4">
+          <attribute name="title">
+           <string>Tab 1</string>
+          </attribute>
+          <layout class="QGridLayout" name="gridLayout_14">
+           <item row="0" column="0">
+            <widget class="QGroupBox" name="groupBox_4">
+             <property name="title">
+              <string>CAN报文</string>
+             </property>
+             <layout class="QGridLayout" name="gridLayout_12">
+              <item row="0" column="0">
+               <widget class="QTextBrowser" name="textBrowser_cantext">
+                <property name="autoFormatting">
+                 <set>QTextEdit::AutoNone</set>
                 </property>
-               </item>
-               <item>
-                <property name="text">
-                 <string>Object</string>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="tab_5">
+          <attribute name="title">
+           <string>Tab 2</string>
+          </attribute>
+          <layout class="QGridLayout" name="gridLayout_13">
+           <item row="0" column="0">
+            <widget class="QGroupBox" name="groupBox_6">
+             <property name="title">
+              <string>点迹显示</string>
+             </property>
+             <layout class="QGridLayout" name="gridLayout_7" rowstretch="1,1,9,0" rowminimumheight="0,0,0,0">
+              <item row="1" column="0">
+               <widget class="QComboBox" name="comboBox_tatr">
+                <item>
+                 <property name="text">
+                  <string>Target</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>Object</string>
+                 </property>
+                </item>
+               </widget>
+              </item>
+              <item row="2" column="0" rowspan="2">
+               <widget class="QGraphicsView" name="graphicsView"/>
+              </item>
+              <item row="0" column="0">
+               <widget class="QTableWidget" name="tableWidget">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
                 </property>
-               </item>
-              </widget>
-             </item>
-             <item row="2" column="0" rowspan="2">
-              <widget class="QGraphicsView" name="graphicsView"/>
-             </item>
-             <item row="0" column="0">
-              <widget class="QTableWidget" name="tableWidget">
-               <property name="sizePolicy">
-                <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
-                 <horstretch>0</horstretch>
-                 <verstretch>0</verstretch>
-                </sizepolicy>
-               </property>
-               <property name="autoScrollMargin">
-                <number>16</number>
-               </property>
-               <property name="showGrid">
-                <bool>true</bool>
-               </property>
-               <property name="wordWrap">
-                <bool>true</bool>
-               </property>
-               <property name="cornerButtonEnabled">
-                <bool>true</bool>
-               </property>
-               <property name="rowCount">
-                <number>1</number>
-               </property>
-               <attribute name="horizontalHeaderCascadingSectionResizes">
-                <bool>false</bool>
-               </attribute>
-               <attribute name="horizontalHeaderDefaultSectionSize">
-                <number>69</number>
-               </attribute>
-               <attribute name="horizontalHeaderShowSortIndicator" stdset="0">
-                <bool>false</bool>
-               </attribute>
-               <attribute name="horizontalHeaderStretchLastSection">
-                <bool>true</bool>
-               </attribute>
-               <attribute name="verticalHeaderVisible">
-                <bool>false</bool>
-               </attribute>
-               <row/>
-               <column>
-                <property name="text">
-                 <string>ID</string>
+                <property name="autoScrollMargin">
+                 <number>16</number>
                 </property>
-               </column>
-               <column>
-                <property name="text">
-                 <string>DistLang</string>
+                <property name="showGrid">
+                 <bool>true</bool>
                 </property>
-               </column>
-               <column>
-                <property name="text">
-                 <string>DistLat</string>
+                <property name="wordWrap">
+                 <bool>true</bool>
                 </property>
-               </column>
-               <column>
-                <property name="text">
-                 <string>VrelLong</string>
+                <property name="cornerButtonEnabled">
+                 <bool>true</bool>
                 </property>
-               </column>
-               <column>
-                <property name="text">
-                 <string>VrelLat</string>
+                <property name="rowCount">
+                 <number>1</number>
                 </property>
-               </column>
-               <column>
-                <property name="text">
-                 <string>Cluster</string>
-                </property>
-               </column>
-               <column>
-                <property name="text">
-                 <string>ExistPosi</string>
-                </property>
-               </column>
-               <column>
-                <property name="text">
-                 <string>RCS</string>
-                </property>
-               </column>
-              </widget>
-             </item>
-            </layout>
-           </widget>
-          </item>
-         </layout>
+                <attribute name="horizontalHeaderCascadingSectionResizes">
+                 <bool>false</bool>
+                </attribute>
+                <attribute name="horizontalHeaderDefaultSectionSize">
+                 <number>69</number>
+                </attribute>
+                <attribute name="horizontalHeaderShowSortIndicator" stdset="0">
+                 <bool>false</bool>
+                </attribute>
+                <attribute name="horizontalHeaderStretchLastSection">
+                 <bool>true</bool>
+                </attribute>
+                <attribute name="verticalHeaderVisible">
+                 <bool>false</bool>
+                </attribute>
+                <row/>
+                <column>
+                 <property name="text">
+                  <string>ID</string>
+                 </property>
+                </column>
+                <column>
+                 <property name="text">
+                  <string>DistLang</string>
+                 </property>
+                </column>
+                <column>
+                 <property name="text">
+                  <string>DistLat</string>
+                 </property>
+                </column>
+                <column>
+                 <property name="text">
+                  <string>VrelLong</string>
+                 </property>
+                </column>
+                <column>
+                 <property name="text">
+                  <string>VrelLat</string>
+                 </property>
+                </column>
+                <column>
+                 <property name="text">
+                  <string>Cluster</string>
+                 </property>
+                </column>
+                <column>
+                 <property name="text">
+                  <string>ExistPosi</string>
+                 </property>
+                </column>
+                <column>
+                 <property name="text">
+                  <string>RCS</string>
+                 </property>
+                </column>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+          </layout>
+         </widget>
         </widget>
        </item>
       </layout>

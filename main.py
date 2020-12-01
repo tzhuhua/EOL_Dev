@@ -1,5 +1,5 @@
-#python3.8.0 64位（python 32位要用32位的DLL）
-#
+# #python3.8.0 64位（python 32位要用32位的DLL）
+# #
 import warnings
 warnings.filterwarnings("ignore")
 from queue import Queue
@@ -213,7 +213,7 @@ class CanThrerad(QThread):
     text = pyqtSignal(object)
     analyse_frame = pyqtSignal(object)
     # draw = pyqtSignal(list)
-    def __init__(self, channel, CanVariable):
+    def __init__(self, channel, CanVariable, Acc_Code, Mask_Code):
         super().__init__()
         # self.cluster_list = [[],[],[]]
         self.target_scatter = []
@@ -223,7 +223,8 @@ class CanThrerad(QThread):
         self.ta1 = 0
         self.ta2 = 0
         self.frame_num = 2000
-
+        self.Acc_Code = Acc_Code
+        self.Mask_Code = Mask_Code
     def run(self):
         VCI_USBCAN2A = 4
         STATUS_OK = 1
@@ -260,7 +261,9 @@ class CanThrerad(QThread):
             print('调用 VCI_OpenDevice出错\r\n')
 
         # 初始化通道
-        vci_initconfig = VCI_INIT_CONFIG(0x80000008, 0xFFFFFFFF, 0, 2, 0x00, 0x1C, 0)
+        vci_initconfig = VCI_INIT_CONFIG(self.Acc_Code, self.Mask_Code, 0, 2, 0x00, 0x1C, 0)
+        # vci_initconfig = VCI_INIT_CONFIG(0xe1800000, 0x1e800000, 0, 2, 0x00, 0x1C, 0)
+
         ret = canDLL.VCI_InitCAN(VCI_USBCAN2A, 0, self.channel, byref(vci_initconfig))
         if ret != STATUS_OK:
             print('调用 VCI_InitCAN出错\r\n')
@@ -372,7 +375,7 @@ class CanThrerad(QThread):
                 #     writer.writerow([time.strftime("%Y-%m-%d %H-%M-%S"), hex(id), data])
 
                 # dd = canDLL.VCI_ClearBuffer(VCI_USBCAN2A, 0, 1)
-
+            time.sleep(0.100)
 class Graph(pg.GraphItem):
     click_trigger = pyqtSignal(object)
     def __init__(self):
@@ -572,11 +575,10 @@ class MyApp(Ui_biaoding,QMainWindow):
 
         #保存旧值
         self.TargetStatusMessageOld = []
-        self.canSelectcomboBox.currentTextChanged.connect(self.get_current_can)
         self.can_num = 0
         self.thread_list = []
-        self.get_current_can()
-
+        self.pushButton_startcan.clicked.connect(self.get_current_can)
+        self.pushButton_stopcan.clicked.connect(self.stop_can)
         gv.set_variable('can_data_to_radar', "")
         self.progress_ask_flag = False
         self.current_radar_type = '角雷达'
@@ -605,6 +607,7 @@ class MyApp(Ui_biaoding,QMainWindow):
         self.scatter_timer.timeout.connect(self.update_scatter)
         self.scatter_timer.start()
         gv.set_variable('scatter_timer', self.scatter_timer)
+        self.pushButton_stopcan.setEnabled(False)
 
     def generate_image(self):
         verticalLayout = QVBoxLayout(self.graphicsView)
@@ -616,6 +619,9 @@ class MyApp(Ui_biaoding,QMainWindow):
         self.plot = win.addPlot()
         # alpha为网格的不透明度
         self.plot.showGrid(x=True, y=True)
+        self.plot.setXRange(-60, 60)
+        self.plot.setYRange(0, 100)
+        self.comboBox_tatr.setEnabled(False)
 
     def write_2_table_content(self, content):
         for index, item in enumerate(content):
@@ -796,9 +802,25 @@ class MyApp(Ui_biaoding,QMainWindow):
                     self.label_read_state.setText("读取完成， bin文件已经生成！")
                 else:
                     self.label_read_state.setText("正在读取Flash数据！")
+
+
     def get_current_can(self):
         my_current_can = self.canSelectcomboBox.currentText()
-
+        sid = self.lineEdit_slvboID.text()
+        eid = self.lineEdit_elvboID.text()
+        Acc_Code = 0x80000008
+        Mask_Code = 0xFFFFFFFF
+        if self.checkBox_slvbo.checkState():
+            try:
+                start_id_int = int(sid, 16)
+                end_id_int = int(eid, 16)
+            except ValueError:
+                self.lineEdit_slvboID.setText("重新输入！")
+                self.lineEdit_elvboID.setText("重新输入！")
+                return
+            My_Sid = start_id_int << 21
+            Acc_Code = end_id_int << 21
+            Mask_Code = My_Sid ^ Acc_Code
         if self.thread_list:
             for thr in self.thread_list:
                 thr.terminate()
@@ -808,7 +830,7 @@ class MyApp(Ui_biaoding,QMainWindow):
             self.can_num = 0
             # ax, fig = self.draw_targets()
 
-            self.Can1Variable, self.Can2Variable, self.ta1, self.ta2 = self.start_can(self.can_num)
+            self.Can1Variable, self.Can2Variable, self.ta1, self.ta2 = self.start_can(self.can_num, Acc_Code, Mask_Code)
             gv.set_variable("Can1Variable", self.Can1Variable)
             gv.set_variable("Can2Variable", self.Can2Variable)
             gv.set_variable('ta1', self.ta1)
@@ -821,7 +843,7 @@ class MyApp(Ui_biaoding,QMainWindow):
             self.can_num = 1
             # ax, fig = self.draw_targets()
 
-            self.Can1Variable, self.Can2Variable, self.ta1, self.ta2 = self.start_can(self.can_num)
+            self.Can1Variable, self.Can2Variable, self.ta1, self.ta2 = self.start_can(self.can_num, Acc_Code, Mask_Code)
             gv.set_variable("Can1Variable", self.Can1Variable)
             gv.set_variable("Can2Variable", self.Can2Variable)
             gv.set_variable('ta1', self.ta1)
@@ -832,14 +854,21 @@ class MyApp(Ui_biaoding,QMainWindow):
             # self.refresh.start()
             self.thread_list.append(self.ta2)
 
+    def stop_can(self):
+        self.pushButton_startcan.setEnabled(True)
+        self.pushButton_stopcan.setEnabled(False)
+        if gv.get_variable('dll'):
+            dll = gv.get_variable('dll')
+            dll.VCI_CloseDevice(4, 0)
 
-
-    def start_can(self, can_num):
+    def start_can(self, can_num, Acc_Code, Mask_Code):
+        self.pushButton_stopcan.setEnabled(True)
+        self.pushButton_startcan.setEnabled(False)
         Can1Variable = definevariable()
         Can2Variable = definevariable()
 
-        ta1 = CanThrerad(0, Can1Variable)
-        ta2 = CanThrerad(1, Can2Variable)
+        ta1 = CanThrerad(0, Can1Variable, Acc_Code, Mask_Code)
+        ta2 = CanThrerad(1, Can2Variable, Acc_Code, Mask_Code)
         if can_num == 0:
             ta1.text.connect(self.printcan)
             ta1.analyse_frame.connect(self.dongtai_ui)
@@ -853,7 +882,9 @@ class MyApp(Ui_biaoding,QMainWindow):
 
     def printcan(self, can_list):
         for frame in can_list:
-            self.textBrowser_cantext.append(f'{frame[0]}  {frame[1]}  {frame[2]} {frame[3]}')
+            self.textBrowser_cantext.append(f'{frame[0]}  {frame[1]}  {frame[2]}  {frame[3]}')
+            if self.textBrowser_cantext.document().blockCount() > 5000:
+                self.textBrowser_cantext.document().clear()
         # self.textBrowser_cantext.moveCursor(self.textBrowser_cantext.textCursor().End)
         # self.textBrowser_cantext.append(f"{hex(canobject[0])}, {canobject[1]}")
         # print(hex(canobject[0]), canobject[1])
