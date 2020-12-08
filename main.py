@@ -1,8 +1,5 @@
-# #python3.8.0 64位（python 32位要用32位的DLL）
-# #
 import warnings
 warnings.filterwarnings("ignore")
-from queue import Queue
 import datetime
 import time
 import pyqtgraph as pg
@@ -13,20 +10,17 @@ import global_variable as gv
 gv._init()
 gv.set_variable('status_flag', False)
 from calibration.definevariable import definevariable
-from PyQt5.QtCore import QThread, pyqtSignal, QDir, Qt
+from PyQt5.QtCore import QThread, pyqtSignal, QDir, Qt,QItemSelectionModel
 from PyQt5 import QtCore, QtWidgets
 from ctypes import *
 import ctypes
 import inspect
 from PyQt5.QtWidgets import QApplication, QWidget, QMainWindow, QVBoxLayout, QFileDialog, QTableWidgetItem
 from sys import argv, exit
-from os import getcwd
 import os
-from xlrd import open_workbook
 from calibration.multhread import operationthread
 import numpy as np
 np.set_printoptions(precision=2)
-from calibration.anglecalibration import writeanglecalibration
 from calibrationWindow import Ui_biaoding
 from warning import Ui_warning
 from confirm import Ui_Confirm
@@ -37,52 +31,25 @@ from calibration import snvalue
 from calibration.definevariable import canvariable
 from calibration.caliresultshow import MainWindowThread
 
-# 角度标定确认按钮按下次数和标志
-from calibration.definevariable import anglecalibrationpress
 
-# 角度标定已经完成的角度个数
-from calibration.definevariable import anglecalibrationcompletednum
-import math
 from StatusShow import targetstatus
 
 #存储处理数据的线程
 from calibration.definevariable import operationthreadvariables
 
 from calibration.definevariable import targetshowvalue
-
+from PyQt5.QtGui import QStandardItemModel, QStandardItem
 VCI_USBCAN2 = 4
 STATUS_OK = 1
 
 ListValueID = []
-
-class VCI_INIT_CONFIG(Structure):
-    _fields_ = [("AccCode", c_uint),
-                ("AccMask", c_uint),
-                ("Reserved", c_uint),
-                ("Filter", c_ubyte),
-                ("Timing0", c_ubyte),
-                ("Timing1", c_ubyte),
-                ("Mode", c_ubyte)
-                ]
-class VCI_CAN_OBJ(Structure):
-    _fields_ = [("ID", c_uint),
-                ("TimeStamp", c_uint),
-                ("TimeFlag", c_ubyte),
-                ("SendType", c_ubyte),
-                ("RemoteFlag", c_ubyte),
-                ("ExternFlag", c_ubyte),
-                ("DataLen", c_ubyte),
-                ("Data", c_ubyte*8),
-                ("Reserved", c_ubyte*3)
-                ]
-
 CanDLLName = './ControlCAN.dll' #把DLL放到对应的目录下
 canDLL = windll.LoadLibrary('./ControlCAN.dll')
 gv.set_variable('dll', canDLL)
 
-#Linux系统下使用下面语句，编译命令：python3 python3.8.0.py
-#canDLL = cdll.LoadLibrary('./libcontrolcan.so')
-#canDLL = cdll.LoadLibrary('./libcontrolcan.so')
+
+
+
 def _async_raise(tid, exctype):
     """raises the exception, performs cleanup if needed"""
     tid = ctypes.c_long(tid)
@@ -209,6 +176,7 @@ class Refresh(QThread):
                 self.figure.canvas.draw()
                 self.figure.canvas.flush_events()
 
+
 class CanThrerad(QThread):
     text = pyqtSignal(object)
     analyse_frame = pyqtSignal(object)
@@ -217,7 +185,10 @@ class CanThrerad(QThread):
         super().__init__()
         # self.cluster_list = [[],[],[]]
         self.target_scatter = []
+        self.object_scatter = []
         self.current_all_scatter = []
+        self.current_all_object = []
+
         self.channel = channel
         self.CanVariable = CanVariable
         self.ta1 = 0
@@ -274,36 +245,20 @@ class CanThrerad(QThread):
             print('调用 VCI_StartCAN出错\r\n')
             return
 
-        # # 通道0发送数据
-        # ubyte_array = c_ubyte * 8
-        # self.array = ubyte_array(0xC1, 0x51, 0x5B, 0x05, 0x64, 0x00, 0x0A, 0x0)
-        # a = self.array
-        # ubyte_3array = c_ubyte * 3
-        # b = ubyte_3array(0, 0, 0)
-        # vci_can_obj = VCI_CAN_OBJ(0x635, 0, 0, 1, 0, 0, 8, a, b)
-
-        # ret = canDLL.VCI_Transmit(VCI_USBCAN2A, 0, 0, byref(vci_can_obj), 1)
 
         ubyte_array = c_ubyte * 8
         ubyte_3array = c_ubyte * 3
         a = ubyte_array(0, 0, 0, 0, 0, 0, 0, 0)
         b = ubyte_3array(0, 0, 0)
-        # ret = canDLL.VCI_Receive(VCI_USBCAN2A, 0, 0, byref(vci_can_obj), 1, 0)
         name = "can_log_"+time.strftime('%H%M%S')+".csv"
         gv.set_variable('can_log', name)
         while True:
             analyse_flag = False
             vci_can_obj = VCI_CAN_OBJ(*(0x0, 0, 0, 1, 0, 0, 8, a, b) * self.frame_num)
             ret = canDLL.VCI_Receive(VCI_USBCAN2, 0, self.channel, byref(vci_can_obj), self.frame_num, 0)    #每次接收一帧数据，这里设为1
-            # while ret <= 0:  # 如果没有接收到数据，一直循环查询接收。
-            #     ret = canDLL.VCI_Receive(VCI_USBCAN2, 0, self.channel, byref(vci_can_obj), 100, 400)
+
             if ret > 0:
                 time_now = datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]
-
-                # num = canDLL.VCI_GetReceiveNum(VCI_USBCAN2A, 0, 1)
-                # print(num)
-                # id= vci_can_obj.ID1
-                # data = list(vci_can_obj.Data1)
                 frame = []
                 if gv.get_variable("can_data_to_radar") != "":
                     frame.extend(gv.get_variable("can_data_to_radar"))
@@ -340,18 +295,8 @@ class CanThrerad(QThread):
                             Status = (int(bin_can_frame_str[50:53], 2))
                             PossibilitofExist = (int(bin_can_frame_str[53:56], 2))
                             RCS = int(bin_can_frame_str[56:64], 2) * 0.5 - 64
-                            # # print(ID)
-                            # # print(DistLong)
-                            # # print(DistLat)
-                            # # print(VrelLong)
-                            # # print(VrelLat)
-                            # # print(Status)
-                            # # print(PossibilitofExist)
-                            # # print(RCS)
-                            theta = math.atan2(DistLat, DistLong)
-                            r = math.sqrt(DistLong * DistLong + DistLat * DistLat)
-                            # self.cluster_list[0].extend([theta])
-                            # self.cluster_list[1].extend([r])
+                            # theta = math.atan2(DistLat, DistLong)
+                            # r = math.sqrt(DistLong * DistLong + DistLat * DistLat)
                             self.target_scatter.extend([[DistLat, DistLong]])
                             self.current_all_scatter.extend([[ID, DistLong, DistLat, VrelLong, VrelLat, Status, PossibilitofExist, RCS]])
                         if id == 0x70A:
@@ -362,6 +307,26 @@ class CanThrerad(QThread):
                             # self.cluster_list = [[], []]
                             self.target_scatter.clear()
                             self.current_all_scatter.clear()
+                        if id == 0x60B:
+                            bin_can_frame_list = [bin(x)[2:].zfill(8) for x in data]
+                            bin_can_frame_str = ''.join(bin_can_frame_list)
+                            ID = int(bin_can_frame_str[0:8], 2)
+                            DistLong = int(bin_can_frame_str[8:18], 2) * 0.2 - 102
+                            DistLat = int(bin_can_frame_str[18:28], 2) * 0.2 - 102
+                            VrelLong = int(bin_can_frame_str[28:38], 2) * 0.25 - 128
+                            VrelLat = int(bin_can_frame_str[38:47], 2) * 0.25 - 64
+                            Status = (int(bin_can_frame_str[50:53], 2))
+                            PossibilitofExist = (int(bin_can_frame_str[53:56], 2))
+                            RCS = int(bin_can_frame_str[56:64], 2) * 0.5 - 64
+                            if ID != 255:
+                                self.object_scatter.extend([[DistLat, DistLong]])
+                                self.current_all_object.extend([[ID, DistLong, DistLat, VrelLong, VrelLat, Status, PossibilitofExist, RCS]])
+                        if id == 0x60A:
+                            if not gv.get_variable("stop_scatter"):
+                                gv.set_variable('object_scatter', np.array(self.object_scatter))
+                                gv.set_variable('object_scatter_info', np.array(self.current_all_object))
+                            self.object_scatter.clear()
+                            self.current_all_object.clear()
                         if id == 0x7EA or id == 0x7EE:
                             analyse_flag = True
                     else:
@@ -370,12 +335,8 @@ class CanThrerad(QThread):
                 self.text.emit(frame)
                 if analyse_flag:
                     self.analyse_frame.emit(frame)
-                # with open (name, 'a', newline="") as can_log_file:
-                #     writer = csv.writer(can_log_file)
-                #     writer.writerow([time.strftime("%Y-%m-%d %H-%M-%S"), hex(id), data])
 
-                # dd = canDLL.VCI_ClearBuffer(VCI_USBCAN2A, 0, 1)
-            time.sleep(0.100)
+            time.sleep(0.020)
 class Graph(pg.GraphItem):
     click_trigger = pyqtSignal(object)
     def __init__(self):
@@ -414,9 +375,7 @@ class Graph(pg.GraphItem):
             return
 
         if ev.isStart():
-            # We are already one step into the drag.
-            # Find the point(s) at the mouse cursor when the button was first
-            # pressed:
+
             pos = ev.buttonDownPos()
             pts = self.scatter.pointsAt(pos)
             if len(pts) == 0:
@@ -440,10 +399,10 @@ class Graph(pg.GraphItem):
 
     def clicked(self, pts):
         current_index = pts.ptsClicked[0].index()
-        print(pts.ptsClicked[0].pos())
-        print(gv.get_variable('target_scatter_info')[current_index])
-        self.click_trigger.emit(gv.get_variable('target_scatter_info')[current_index])
-
+        if pts.ptsClicked[0].size() == 5:
+            self.click_trigger.emit(gv.get_variable('target_scatter_info')[current_index])
+        else:
+            self.click_trigger.emit(gv.get_variable('object_scatter_info')[current_index])
 class MyGraphView(pg.GraphicsLayoutWidget):
     def __init__(self, parent=None):
         pg.GraphicsLayoutWidget.__init__(self, parent)
@@ -477,103 +436,50 @@ class MyGraphView(pg.GraphicsLayoutWidget):
             self.translate(tr[0], tr[1])
             self.sigDeviceRangeChanged.emit(self, self.range)
     def leaveEvent(self, ev):
-        print("rr")
         gv.set_variable('stop_scatter', False)
-
         return
+
 
 class MyApp(Ui_biaoding,QMainWindow):
     def __init__(self):
         super(MyApp, self).__init__()
         self.setupUi(self)
-        self.ax = None
-        self.queue_targets= Queue()
         gv.set_variable('target', [])
-        # self.cluster_list = [[], [], []]
-
-        #通道选择
         self.channel1 = 0
         self.channel2 = 0
-        self.groupBox_5.setDisabled(True)
-        #Syetem Calibration
-        self.SysCaliStart.clicked.connect(self.SysCalibrationFunction)
-        #Angle Calibration
-        # self.AngleCaliStart.clicked.connect(self.AngleCaliFunction)
-        #Target Status
-        self.statuspushButton.clicked.connect(self.TargetStatusFunction)
+        self.FilePath = 0
+        self.ta1 = 0
+        self.ta2 = 0
+        self.Can1Variable = None
+        self.Can2Variable = None
+        self.CanVariable = None
+        self.doubleCanVariable = canvariable()
 
-        #扩展模式
+        # 存储处理数据的线程
+        self.timer = 0
+        self.operationThreadVariables = operationthreadvariables()
+        self.targetShowValue = targetshowvalue()
+        self.ui_connection()
+        self.init_dongtai()
+        self.init_scatter()
+        self.init_table()
+        gv.set_variable("enter_table_view", False)
+
+    def ui_connection(self):
+        self.SysCaliStart.clicked.connect(self.SysCalibrationFunction)
+        self.statuspushButton.clicked.connect(self.TargetStatusFunction)
         self.comboBox_radar_type.currentTextChanged.connect(self.radar_type)
         self.pushButton_biaoding_history.clicked.connect(self.read_history)
         self.pushButton_start_biaoding.clicked.connect(self.run_biaoding)
         self.pushButton_read_biaoding_value.clicked.connect(self.read_value)
         self.pushButton_flash.clicked.connect(self.read_flash)
         self.pushButton_delete.clicked.connect(self.delete_flash_area)
-        self.FilePath = 0
-        self.cwd = getcwd()  # 获取当前程序文件位置
-
-        self.Can1Variable = None
-        self.Can2Variable = None
-        self.CanVariable = None
-        #首次角度标定
-        self.AngleNum = 0
-        #存储左雷达值
-        self.CalcAngleListLeft = []
-        #存储右雷达值
-        self.CalcAngleListRight = []
-        #第几个角度值
-        self.AngleIndex = -1
-        #配置文件中的角度值
-        self.row_data = 0
-        self.col_data = 0
-        #配置文件中的角度个数
-        self.col_data_num = 0
-        #存储的所有valueByte4和valueByte5的值
-        self.valueByte4All = 0
-        self.valueByte5All = 0
-        #当前的valueByte4和valueByte5的值
-        self.valueByte4 = 0
-        self.valueByte5 = 0
-
-        self.ta1 = 0
-        self.ta2 = 0
-
-        #是否做系统标定
-        self.sysCaliOrNot = 0
-
-        #雷达安装类型是否选择正确，0为默认值，1为选择错误，2为选择正确
-        self.errorValue = 0
-
-        # can通路
-        self.doubleCanVariable = canvariable()
-
-        # 按下角度确认按钮次数，0表示第一次按下，1表示第二次按下
-        self.angleCalibrationPress = anglecalibrationpress()
-
-        # 当前角度的角度标定是否做完
-        self.curAngleCaliCompleted = anglecalibrationcompletednum()
-
-        # 角度标定线程
-        self.op = 0
-        self.opR = 0
-        self.opL = 0
-        # self.can_live = Thread(target=self.show_CanText)
-        # self.can_live.setDaemon(True)
-        # self.can_live.start()
-
-        # 存储处理数据的线程
-        self.operationThreadVariables = operationthreadvariables()
-
-        self.timer = 0
-
-        self.targetShowValue = targetshowvalue()
-
-        #保存target旧值
-        self.targetShowValueOld = 0
-        #第一次显示cluster
-        self.firstTimeDisplay = 0
+        self.groupBox_5.setDisabled(True)
+        self.pushButton_printcan.clicked.connect(self.set_print_can_flag)
+    def init_dongtai(self):
 
         #保存旧值
+        self.enter_kuozhan_result = False
         self.TargetStatusMessageOld = []
         self.can_num = 0
         self.thread_list = []
@@ -591,23 +497,72 @@ class MyApp(Ui_biaoding,QMainWindow):
         self.flash_frame_nums = 0
         self.get_filename_path = ""
 
-        #点迹显示
+    def init_scatter(self):
+        # 点迹显示
         gv.set_variable("target_scatter", [])
         gv.set_variable("stop_scatter", False)
+        gv.set_variable('object_scatter', np.array([]))
+        gv.set_variable('target_scatter', np.array([]))
+        gv.set_variable('target_scatter_info', np.array([]))
+        gv.set_variable('object_scatter_info', np.array([]))
 
+        self.can_isRun = False
         self.first_time_flag = True
         self.generate_image()
         self.my_scatter = Graph()
         self.my_scatter.click_trigger.connect(self.write_2_table_content)
+        self.my_object = Graph()
+        self.my_object.click_trigger.connect(self.write_2_table_content)
         self.plot.addItem(self.my_scatter)
-        self.update_scatter()
+        self.plot.addItem(self.my_object)
         self.scatter_timer = QtCore.QTimer()
-        self.scatter_timer.stop()
         self.scatter_timer.setInterval(5)
         self.scatter_timer.timeout.connect(self.update_scatter)
         self.scatter_timer.start()
         gv.set_variable('scatter_timer', self.scatter_timer)
         self.pushButton_stopcan.setEnabled(False)
+
+    def init_table(self):
+        gv.set_variable("stop_print_can", False)
+        # self.page_3.enterEvent = self.enterEvent
+        # self.page_3.leaveEvent = self.leaveEvent
+        self.__ColCount = 4  # 列数=6
+        self.itemModel = QStandardItemModel(0, self.__ColCount, self)  # 数据模型,10行6列
+        self.selectionModel = QItemSelectionModel(self.itemModel)  # Item选择模型
+        self.tableView.setModel(self.itemModel) #设置数据模型
+        self.tableView.setSelectionModel(self.selectionModel)    #设置选择模型
+        self.tableView.setAlternatingRowColors(True)  # 交替行颜色
+        headerText = ["时间", "传输方向", "帧ID", "数据"]
+        self.itemModel.setHorizontalHeaderLabels(headerText)
+        self.lineEdit_rowNum.textChanged.connect(self.rowNumChanged)
+        try:
+            self.rowNum = int(self.lineEdit_rowNum.text())
+        except ValueError:
+            self.lineEdit_rowNum.setText("重新输入！")
+        self.scatter_type = "Target and Object"
+        self.comboBox_tatr.currentTextChanged.connect(self.output_scatter_type)
+
+    def enterEvent(self, event):
+        gv.set_variable("enter_table_view", True)
+    def leaveEvent(self, event):
+        gv.set_variable("enter_table_view", False)
+
+    def output_scatter_type(self):
+        self.scatter_type = self.comboBox_tatr.currentText()
+        if self.scatter_type == "Object":
+            self.plot.removeItem(self.my_scatter)
+            self.plot.addItem(self.my_object)
+        elif self.scatter_type == "Target":
+            self.plot.removeItem(self.my_object)
+            self.plot.addItem(self.my_scatter)
+        else:
+            self.plot.addItem(self.my_scatter)
+            self.plot.addItem(self.my_object)
+    def rowNumChanged(self):
+        try:
+            self.rowNum = int(self.lineEdit_rowNum.text())
+        except ValueError:
+            self.lineEdit_rowNum.setText("重新输入！")
 
     def generate_image(self):
         verticalLayout = QVBoxLayout(self.graphicsView)
@@ -621,14 +576,12 @@ class MyApp(Ui_biaoding,QMainWindow):
         self.plot.showGrid(x=True, y=True)
         self.plot.setXRange(-60, 60)
         self.plot.setYRange(0, 100)
-        self.comboBox_tatr.setEnabled(False)
 
     def write_2_table_content(self, content):
         for index, item in enumerate(content):
             item = QTableWidgetItem(str(round(float(item), 2)), 1000)
             item.setTextAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
             self.tableWidget.setItem(0, index, item)
-        print("write_2_table_content")
 
 
     def closeEvent(self, event):
@@ -678,6 +631,15 @@ class MyApp(Ui_biaoding,QMainWindow):
     def run_biaoding(self):
         targetstatus.dongtai_biaoding(self.can_num, "kuozhan")
         self.progress_ask_flag = True
+        kuozhan_check = Timer(1, self.enter_kuozhan)
+        kuozhan_check.start()
+
+    def enter_kuozhan(self):
+        if not self.enter_kuozhan_result:
+            self.label_kuozhan.setText("进入扩展模式失败，请重新再试！")
+        else:
+            self.label_kuozhan.setText("成功进入扩展模式！")
+        self.enter_kuozhan_result = False
 
     def radar_type(self):
         self.current_radar_type = self.comboBox_radar_type.currentText()
@@ -741,6 +703,7 @@ class MyApp(Ui_biaoding,QMainWindow):
             if frame[2] == "0X7EA":
                 frame_data = frame[3].split(" ")
                 if self.progress_ask_flag and frame_data[1] == '50' and frame_data[2] == '03':
+                    self.enter_kuozhan_result = True
                     self.keep_online()
                     targetstatus.dongtai_biaoding(self.can_num, "run")
                 elif self.flash_flag == "read_flash" and frame_data[1] == '50' and frame_data[2] == '03':
@@ -805,6 +768,7 @@ class MyApp(Ui_biaoding,QMainWindow):
 
 
     def get_current_can(self):
+        self.can_isRun = True
         my_current_can = self.canSelectcomboBox.currentText()
         sid = self.lineEdit_slvboID.text()
         eid = self.lineEdit_elvboID.text()
@@ -828,7 +792,6 @@ class MyApp(Ui_biaoding,QMainWindow):
             self.thread_list = []
         if my_current_can == "CAN1":
             self.can_num = 0
-            # ax, fig = self.draw_targets()
 
             self.Can1Variable, self.Can2Variable, self.ta1, self.ta2 = self.start_can(self.can_num, Acc_Code, Mask_Code)
             gv.set_variable("Can1Variable", self.Can1Variable)
@@ -836,25 +799,18 @@ class MyApp(Ui_biaoding,QMainWindow):
             gv.set_variable('ta1', self.ta1)
             gv.set_variable('ta2', self.ta2)
             self.thread_list.append(self.ta1)
-            # # self.cantext.draw.connect(self.refresh_targets)
-            # self.refresh = Refresh(ax, fig)
-            # self.refresh.start()
         if my_current_can == "CAN2":
             self.can_num = 1
-            # ax, fig = self.draw_targets()
 
             self.Can1Variable, self.Can2Variable, self.ta1, self.ta2 = self.start_can(self.can_num, Acc_Code, Mask_Code)
             gv.set_variable("Can1Variable", self.Can1Variable)
             gv.set_variable("Can2Variable", self.Can2Variable)
             gv.set_variable('ta1', self.ta1)
             gv.set_variable('ta2', self.ta2)
-
-            # # self.cantext.draw.connect(self.refresh_targets)
-            # self.refresh = Refresh(ax, fig)
-            # self.refresh.start()
             self.thread_list.append(self.ta2)
 
     def stop_can(self):
+        self.can_isRun = False
         self.pushButton_startcan.setEnabled(True)
         self.pushButton_stopcan.setEnabled(False)
         if gv.get_variable('dll'):
@@ -879,23 +835,38 @@ class MyApp(Ui_biaoding,QMainWindow):
             ta2.start()
         return Can1Variable, Can2Variable, ta1, ta2
 
-
+    def set_print_can_flag(self):
+        if self.pushButton_printcan.text() == "暂停报文滚动":
+            self.pushButton_printcan.setText("动态显示报文")
+            gv.set_variable("stop_print_can", True)
+        else:
+            self.pushButton_printcan.setText("暂停报文滚动")
+            gv.set_variable("stop_print_can", False)
     def printcan(self, can_list):
+        if gv.get_variable("stop_print_can"):
+            return
         for frame in can_list:
-            self.textBrowser_cantext.append(f'{frame[0]}  {frame[1]}  {frame[2]}  {frame[3]}')
-            if self.textBrowser_cantext.document().blockCount() > 5000:
-                self.textBrowser_cantext.document().clear()
-        # self.textBrowser_cantext.moveCursor(self.textBrowser_cantext.textCursor().End)
-        # self.textBrowser_cantext.append(f"{hex(canobject[0])}, {canobject[1]}")
-        # print(hex(canobject[0]), canobject[1])
-
+            itemlist = [QStandardItem(frame[0]),  QStandardItem(frame[1]), QStandardItem(frame[2]),  QStandardItem(frame[3])]
+            if frame[1] == "to radar  ":
+                for item in itemlist:
+                    item.setBackground(QtGui.QBrush(Qt.yellow))
+            if frame[2] == "0X7EA":
+                for item in itemlist:
+                    item.setBackground(QtGui.QBrush(Qt.green))
+            self.itemModel.appendRow(itemlist)
+            if self.itemModel.rowCount() > self.rowNum:
+                count = self.itemModel.rowCount() - self.rowNum
+                self.itemModel.removeRows(0, count)
+        # scroll_flag = gv.get_variable("enter_table_view")
+        # if not scroll_flag:
+        #     self.tableView.scrollToBottom()
+        self.tableView.scrollToBottom()
 
     def SysCalibrationFunction(self):
         self.SysCaliResult.setText(None)
         self.AngleResult.setText(None)
         self.SteplineEdit.setText(None)
         # 为1表示做了系统标定
-        self.sysCaliOrNot = 1
 
 
         self.get_filename_path, ok = QFileDialog.getOpenFileName(self, "选取单个文件", QDir.currentPath(), "All Files (*);;Text Files (*.xls)")
@@ -915,9 +886,29 @@ class MyApp(Ui_biaoding,QMainWindow):
         opMainWindow.start()  # 开启ta线程
 
     def update_scatter(self):
-        scatter = gv.get_variable("target_scatter")
-        if len(scatter) > 0 and not gv.get_variable("stop_scatter"):
-            self.my_scatter.setData(pos=scatter,  size=5,  brush='ff0000')
+        if self.can_isRun:
+            if self.scatter_type == "Target and Object":
+                scatter = gv.get_variable("target_scatter")
+                if len(scatter) > 0 and not gv.get_variable("stop_scatter"):
+                    self.my_scatter.setData(pos=scatter,  size=5,  brush='ff0000')
+                scatter = gv.get_variable("object_scatter")
+                if len(scatter) > 0 and not gv.get_variable("stop_scatter"):
+                    self.plot.addItem(self.my_object)
+                    self.my_object.setData(pos=scatter,  size=10,  brush='00ff00')
+                else:
+                    self.plot.removeItem(self.my_object)
+            elif self.scatter_type == "Object":
+                scatter = gv.get_variable("object_scatter")
+                if len(scatter) > 0 and not gv.get_variable("stop_scatter"):
+                    self.plot.addItem(self.my_object)
+                    self.my_object.setData(pos=scatter,  size=10,  brush='00ff00')
+                else:
+                    self.plot.removeItem(self.my_object)
+            elif self.scatter_type == "Target":
+                scatter = gv.get_variable("target_scatter")
+                if len(scatter) > 0 and not gv.get_variable("stop_scatter"):
+                    self.my_scatter.setData(pos=scatter,  size=5,  brush='ff0000')
+
     def update(self):
 
         TargetStatusMessageNew = self.CanVariable.getTargetStatusMessage()
@@ -925,12 +916,7 @@ class MyApp(Ui_biaoding,QMainWindow):
             self.TargetStatusMessageOld = TargetStatusMessageNew
             statusdisplay.TargetStatusDisplay(TargetStatusMessageNew, self.statuslineEdit)
             self.CanVariable.clearTargetStatusMessage()
-        # if scatter[0] != []:
-        #     if not self.first_time_flag:
-        #         self.plot.removeItem(self.clusterValue)
-        #     self.clusterValue = pg.ScatterPlotItem(x=scatter[1], y=scatter[0], brush='ff0000', size=5)
-        #     self.plot.addItem(self.clusterValue)
-        #     self.first_time_flag = False
+
 
 
     def TargetStatusFunction(self):
